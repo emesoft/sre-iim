@@ -12,7 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.domain.incidents.entities import AnalysisDraft
+from app.domain.incidents.entities import AnalysisDraft, LogEvent
 from app.infrastructure.db.orm import (
     EMBED_DIM,
     AnalysisCacheRow,
@@ -22,7 +22,7 @@ from app.infrastructure.db.orm import (
     DocumentRow,
     IncidentRow,
 )
-from app.interface.http.deps import get_base_analyzer, get_embedder, get_session
+from app.interface.http.deps import get_base_analyzer, get_embedder, get_log_fetcher, get_session
 from app.main import app
 from tests.sse_test_utils import iter_sse
 
@@ -59,6 +59,13 @@ class _FakeEmbedder:
         return [0.1] * EMBED_DIM
 
 
+class _FakeLogFetcher:
+    async def fetch_logs(self, log_group, start, end, filter_pattern=None):
+        return [
+            LogEvent(timestamp=start, message="[CRITICAL] medusa-api HTTP 500: GET /admin-portal"),
+        ]
+
+
 @pytest.fixture()
 async def client():
     engine = create_async_engine(_DB_URL)
@@ -86,6 +93,7 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
+    app.dependency_overrides[get_log_fetcher] = lambda: _FakeLogFetcher()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -145,3 +153,40 @@ async def test_missing_service_returns_422(client):
     r = await client.post("/api/incidents", json={"source": "manual", "context": {}})
     assert r.status_code == 422
     assert r.json()["detail"] == "context.service is required"
+
+
+async def test_log_search_merges_logs_and_reanalyzes(client):
+    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    incident_id = r.json()["incident_id"]
+    await _await_analyzed(client, incident_id)
+
+    r = await client.post(
+        f"/api/incidents/{incident_id}/logs/search",
+        json={
+            "log_group": "/ecs/prod-storefront-logs",
+            "start": "2026-07-25T00:00:00Z",
+            "end": "2026-07-25T01:00:00Z",
+        },
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["log_group"] == "/ecs/prod-storefront-logs"
+    assert len(body["log_events"]) == 1
+    assert "500" in body["log_events"][0]["message"]
+    assert body["analysis"]["severity"] == "critical"
+
+    detail = (await client.get(f"/api/incidents/{incident_id}")).json()
+    assert detail["log_group"] == "/ecs/prod-storefront-logs"
+    assert detail["context"]["sample_logs"][0]["message"] == body["log_events"][0]["message"]
+
+
+async def test_log_search_404_for_unknown_incident(client):
+    r = await client.post(
+        "/api/incidents/00000000-0000-0000-0000-000000000000/logs/search",
+        json={
+            "log_group": "/ecs/prod-storefront-logs",
+            "start": "2026-07-25T00:00:00Z",
+            "end": "2026-07-25T01:00:00Z",
+        },
+    )
+    assert r.status_code == 404

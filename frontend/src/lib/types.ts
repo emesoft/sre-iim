@@ -38,7 +38,19 @@ export interface IncidentDetail {
   context: Record<string, unknown>
   created_at: string
   updated_at: string
+  log_group: string | null
   analysis: AnalysisOut | null
+}
+
+export interface LogEventOut {
+  timestamp: string
+  message: string
+}
+
+export interface LogSearchResult {
+  log_group: string
+  log_events: LogEventOut[]
+  analysis: AnalysisOut
 }
 
 export interface IncidentCreated {

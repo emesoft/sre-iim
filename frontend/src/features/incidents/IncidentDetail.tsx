@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { AlertTriangle, Cpu, FileSearch, FileText, Gauge, MousePointerClick, Sparkles } from 'lucide-react'
+import {
+  AlertTriangle,
+  Cpu,
+  FileSearch,
+  FileText,
+  Gauge,
+  MousePointerClick,
+  Search,
+  Sparkles,
+} from 'lucide-react'
 import { api, errText } from '../../lib/api'
-import type { IncidentDetail as Detail } from '../../lib/types'
+import type { IncidentDetail as Detail, LogSearchResult } from '../../lib/types'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
+import { Button } from '../../components/ui/Button'
 import { SeverityBadge } from '../../components/ui/SeverityBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { Eyebrow } from '../../components/ui/Eyebrow'
@@ -12,6 +22,18 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { ErrorState } from '../../components/ui/ErrorState'
 import { incidentRef } from '../../lib/format'
 import { useIncidentStream } from '../../lib/useIncidentStream'
+
+/** Best-effort guess at a log group from the incident's own context (e.g. the `ecs` section). */
+function guessLogGroup(context: Record<string, unknown>): string {
+  const ecs = context.ecs as { log_group?: string } | undefined
+  return ecs?.log_group ?? ''
+}
+
+/** `YYYY-MM-DDTHH:mm` for a `datetime-local` input, in local time. */
+function toLocalInputValue(date: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
 
 export function IncidentDetail({ incidentId }: { incidentId: string | null }) {
   const [d, setD] = useState<Detail | null>(null)
@@ -179,6 +201,9 @@ export function IncidentDetail({ incidentId }: { incidentId: string | null }) {
         </Card>
       )}
 
+      {/* CloudWatch log search */}
+      <LogSearchPanel incident={d} onSearched={(next) => setD(next)} />
+
       {/* Raw context */}
       <details className="group rounded-2xl border border-hair bg-surface">
         <summary className="cursor-pointer px-5 py-3.5 text-[11px] font-bold uppercase tracking-[0.14em] text-muted transition hover:text-ink-2">
@@ -198,6 +223,105 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
       <Eyebrow>{label}</Eyebrow>
       <p className="mt-1.5 leading-relaxed text-ink">{children}</p>
     </div>
+  )
+}
+
+function LogSearchPanel({
+  incident,
+  onSearched,
+}: {
+  incident: Detail
+  onSearched: (next: Detail) => void
+}) {
+  const created = new Date(incident.created_at)
+  const [logGroup, setLogGroup] = useState(
+    incident.log_group ?? guessLogGroup(incident.context),
+  )
+  const [start, setStart] = useState(toLocalInputValue(new Date(created.getTime() - 30 * 60_000)))
+  const [end, setEnd] = useState(toLocalInputValue(new Date(created.getTime() + 30 * 60_000)))
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+  const [result, setResult] = useState<LogSearchResult | null>(null)
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!logGroup.trim()) return
+    setLoading(true)
+    setErr(null)
+    api
+      .post<LogSearchResult>(`/api/incidents/${incident.id}/logs/search`, {
+        log_group: logGroup.trim(),
+        start: new Date(start).toISOString(),
+        end: new Date(end).toISOString(),
+      })
+      .then((r) => {
+        setResult(r)
+        onSearched({
+          ...incident,
+          log_group: r.log_group,
+          analysis: r.analysis,
+          context: { ...incident.context, sample_logs: r.log_events },
+        })
+      })
+      .catch((e) => setErr(errText(e)))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2">
+        <Search size={15} className="text-accent" />
+        <h3 className="font-display text-sm font-bold text-ink">Search CloudWatch logs</h3>
+      </div>
+      <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-3">
+        <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-xs font-medium text-ink-2">
+          Log group
+          <input
+            value={logGroup}
+            onChange={(e) => setLogGroup(e.target.value)}
+            placeholder="/ecs/prod-storefront-logs"
+            className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+          Start
+          <input
+            type="datetime-local"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
+          End
+          <input
+            type="datetime-local"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+          />
+        </label>
+        <Button type="submit" disabled={loading || !logGroup.trim()}>
+          {loading ? 'Searching…' : 'Search logs'}
+        </Button>
+      </form>
+
+      {err && <p className="mt-3 text-sm text-sev-critical">{err}</p>}
+
+      {result && (
+        <div className="mt-4 space-y-2">
+          <div className="flex items-center gap-2 text-xs text-muted">
+            <Badge tone="accent">{result.log_events.length} lines</Badge>
+            <span className="font-mono">{result.log_group}</span>
+          </div>
+          <pre className="max-h-64 overflow-auto rounded-xl bg-surface-2 p-3 font-mono text-xs leading-relaxed text-ink-2">
+            {result.log_events.length === 0
+              ? 'No matching log lines in this window.'
+              : result.log_events.map((e) => `${e.timestamp}  ${e.message}`).join('\n')}
+          </pre>
+        </div>
+      )}
+    </Card>
   )
 }
 

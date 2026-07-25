@@ -20,9 +20,18 @@ class Incident:
     fingerprint: str
     context: dict
     status: str = "new"  # new | analyzing | analyzed | failed | ticketed | resolved
+    log_group: str | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class LogEvent:
+    """One log line fetched from a `LogFetcher` (e.g. CloudWatch Logs Insights)."""
+
+    timestamp: datetime
+    message: str
 
 
 @dataclass(frozen=True)

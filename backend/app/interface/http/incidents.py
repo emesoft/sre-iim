@@ -18,21 +18,24 @@ from fastapi.responses import StreamingResponse
 from app.application.incidents.ingest import IngestIncident
 from app.domain.documents.ports import DocumentRepository
 from app.domain.incidents.entities import Incident
-from app.domain.incidents.ports import IncidentRepository
+from app.domain.incidents.ports import IncidentRepository, LogFetcher
 from app.infrastructure.events import BusProgressReporter, IncidentEventBus
 from app.interface.http.deps import (
     get_document_repository,
     get_event_bus,
     get_incident_repository,
     get_ingest_incident,
+    get_log_fetcher,
     resolve_background_incident_deps,
 )
 from app.interface.http.dto import mappers
-from app.interface.http.dto.request import IncidentIngestRequest
+from app.interface.http.dto.request import IncidentIngestRequest, LogSearchRequest
 from app.interface.http.dto.response import (
     IncidentCreatedResponse,
     IncidentDetail,
     IncidentSummary,
+    LogEventOut,
+    LogSearchResult,
 )
 
 if TYPE_CHECKING:
@@ -138,6 +141,38 @@ async def stream_incident(
                 return
 
     return StreamingResponse(_events(), media_type="text/event-stream")
+
+
+@router.post("/{incident_id}/logs/search", response_model=LogSearchResult)
+async def search_incident_logs(
+    incident_id: uuid.UUID,
+    body: LogSearchRequest,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    documents: DocumentRepository = Depends(get_document_repository),
+    ingest: IngestIncident = Depends(get_ingest_incident),
+    log_fetcher: LogFetcher = Depends(get_log_fetcher),
+) -> LogSearchResult:
+    """Fetch real log lines for `log_group` via CloudWatch Logs Insights, merge them into the
+    incident's context as `sample_logs`, and re-run analysis grounded in the real logs."""
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+
+    events = await log_fetcher.fetch_logs(
+        body.log_group, body.start, body.end, body.filter_pattern
+    )
+    sample_logs = [{"timestamp": e.timestamp.isoformat(), "message": e.message} for e in events]
+    context = {**incident.context, "sample_logs": sample_logs}
+
+    analysis = await ingest.reanalyze_with_context(
+        incident, context=context, log_group=body.log_group
+    )
+    evidence = await documents.evidence_refs(list(analysis.evidence_chunk_ids))
+    return LogSearchResult(
+        log_group=body.log_group,
+        log_events=[LogEventOut(timestamp=e.timestamp, message=e.message) for e in events],
+        analysis=mappers.analysis_out(analysis, evidence),
+    )
 
 
 @router.get("", response_model=list[IncidentSummary])

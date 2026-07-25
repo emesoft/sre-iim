@@ -19,7 +19,7 @@ from app.application.documents.ingest import IngestDocument
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
-from app.domain.incidents.ports import Analyzer, IncidentRepository
+from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher
 from app.domain.llm import ChatModel
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import Settings, get_settings
@@ -38,6 +38,7 @@ from app.infrastructure.llm.chat import BedrockChatModel, DeepSeekChatModel
 from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
+from app.infrastructure.logs.cloudwatch_fetcher import CloudWatchLogFetcher
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -125,6 +126,12 @@ def get_ingest_incident(
         uow=SqlAlchemyUnitOfWork(session),
         cache_ttl_seconds=settings.cache_ttl_seconds,
     )
+
+
+def get_log_fetcher() -> LogFetcher:
+    """CloudWatch Logs Insights fetcher for the incident log-search action. Tests override this to
+    avoid a real AWS call."""
+    return CloudWatchLogFetcher(get_settings())
 
 
 def get_document_repository(

@@ -56,5 +56,6 @@ def incident_detail(
         context=incident.context,
         created_at=incident.created_at,
         updated_at=incident.updated_at,
+        log_group=incident.log_group,
         analysis=analysis_out(analysis, evidence) if analysis else None,
     )

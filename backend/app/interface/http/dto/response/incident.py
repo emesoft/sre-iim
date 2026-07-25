@@ -53,4 +53,20 @@ class IncidentDetail(BaseModel):
     context: dict
     created_at: datetime
     updated_at: datetime
+    log_group: str | None = None
     analysis: AnalysisOut | None = None
+
+
+class LogEventOut(BaseModel):
+    """One log line returned by a log search."""
+
+    timestamp: datetime
+    message: str
+
+
+class LogSearchResult(BaseModel):
+    """`POST /api/incidents/{id}/logs/search` response: fetched log lines + the re-run analysis."""
+
+    log_group: str
+    log_events: list[LogEventOut]
+    analysis: AnalysisOut

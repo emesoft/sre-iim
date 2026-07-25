@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
-from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident
+from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident, LogEvent
 from app.domain.shared import Clock, UnitOfWork  # re-exported for existing imports
 
 if TYPE_CHECKING:
@@ -21,6 +21,7 @@ __all__ = [
     "Analyzer",
     "IncidentRepository",
     "AnalysisCacheRepository",
+    "LogFetcher",
     "Clock",
     "UnitOfWork",
     "ProgressReporter",
@@ -70,6 +71,18 @@ class IncidentRepository(Protocol):
 
     async def set_status(self, incident_id: uuid.UUID, status: str) -> None: ...
 
+    async def update_context(
+        self,
+        incident_id: uuid.UUID,
+        *,
+        context: dict,
+        fingerprint: str,
+        log_group: str | None = None,
+    ) -> None:
+        """Replace an incident's context/fingerprint (e.g. after merging fetched log lines) so a
+        follow-up analysis re-runs against the new content instead of hitting the stale cache."""
+        ...
+
 
 class AnalysisCacheRepository(Protocol):
     """Fingerprint-keyed cache mapping to a previously computed analysis, honoring a TTL."""
@@ -77,6 +90,19 @@ class AnalysisCacheRepository(Protocol):
     async def get_valid(self, fingerprint: str, now: datetime) -> Analysis | None: ...
 
     async def put(self, fingerprint: str, analysis_id: uuid.UUID, expires_at: datetime) -> None: ...
+
+
+class LogFetcher(Protocol):
+    """Fetches recent log lines for a log group (e.g. CloudWatch Logs Insights). Used by the
+    on-demand log-search action on an incident — not part of the ingest/analyze flow."""
+
+    async def fetch_logs(
+        self,
+        log_group: str,
+        start: datetime,
+        end: datetime,
+        filter_pattern: str | None = None,
+    ) -> list[LogEvent]: ...
 
 
 class ProgressReporter(Protocol):

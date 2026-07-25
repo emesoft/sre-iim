@@ -104,6 +104,29 @@ class IngestIncident:
         analysis = await self.analyze_incident(incident, reporter=reporter)
         return incident, analysis
 
+    async def reanalyze_with_context(
+        self,
+        incident: Incident,
+        *,
+        context: dict,
+        log_group: str | None = None,
+        reporter: ProgressReporter | None = None,
+    ) -> Analysis:
+        """Replace an incident's context (e.g. after fetching real CloudWatch log lines) and
+        re-run analysis against it. A different context yields a different fingerprint
+        (`fingerprint.py`), so this always re-analyzes unless the exact same content was already
+        analyzed and is still cached — same cache-first semantics as `analyze_incident`."""
+        fp = fingerprint(context)
+        await self.incidents.update_context(
+            incident.id, context=context, fingerprint=fp, log_group=log_group
+        )
+        incident.context = context
+        incident.fingerprint = fp
+        if log_group is not None:
+            incident.log_group = log_group
+        await self.uow.commit()
+        return await self.analyze_incident(incident, reporter=reporter)
+
 
 def _copy_analysis(incident_id, source: Analysis, *, cache_state: str) -> Analysis:
     """A fresh Analysis for `incident_id` copying a cached analysis's fields."""

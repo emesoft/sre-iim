@@ -24,6 +24,7 @@ class SqlAlchemyIncidentRepository:
             fingerprint=incident.fingerprint,
             context=incident.context,
             status=incident.status,
+            log_group=incident.log_group,
         )
         self._s.add(row)
         await self._s.flush()
@@ -92,6 +93,21 @@ class SqlAlchemyIncidentRepository:
         row = await self._s.get(IncidentRow, incident_id)
         if row is not None:
             row.status = status
+
+    async def update_context(
+        self,
+        incident_id: uuid.UUID,
+        *,
+        context: dict,
+        fingerprint: str,
+        log_group: str | None = None,
+    ) -> None:
+        row = await self._s.get(IncidentRow, incident_id)
+        if row is not None:
+            row.context = context
+            row.fingerprint = fingerprint
+            if log_group is not None:
+                row.log_group = log_group
 
 
 class SqlAlchemyAnalysisCacheRepository:
