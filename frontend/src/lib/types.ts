@@ -45,6 +45,7 @@ export interface IncidentDetail {
   created_at: string
   updated_at: string
   log_group: string | null
+  ticket_url: string | null
   analysis: AnalysisOut | null
 }
 

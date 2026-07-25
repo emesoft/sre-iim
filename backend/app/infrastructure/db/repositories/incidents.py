@@ -25,6 +25,7 @@ class SqlAlchemyIncidentRepository:
             context=incident.context,
             status=incident.status,
             log_group=incident.log_group,
+            ticket_url=incident.ticket_url,
         )
         self._s.add(row)
         await self._s.flush()
@@ -95,6 +96,12 @@ class SqlAlchemyIncidentRepository:
         row = await self._s.get(IncidentRow, incident_id)
         if row is not None:
             row.status = status
+
+    async def set_ticket_url(self, incident_id: uuid.UUID, ticket_url: str) -> None:
+        row = await self._s.get(IncidentRow, incident_id)
+        if row is not None:
+            row.ticket_url = ticket_url
+            row.status = "ticketed"
 
     async def update_context(
         self,

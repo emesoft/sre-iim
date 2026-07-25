@@ -20,7 +20,7 @@ from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
-from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher
+from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher, TicketClient
 from app.domain.llm import ChatModel
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import Settings, get_settings
@@ -40,6 +40,7 @@ from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
 from app.infrastructure.logs.factory import build_log_fetcher
+from app.infrastructure.tickets.ado_client import AdoTicketClient
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -149,6 +150,16 @@ def get_resolve_incident(
         embedder=embedder,
         uow=SqlAlchemyUnitOfWork(session),
     )
+
+
+def get_unit_of_work(session: AsyncSession = Depends(get_session)) -> SqlAlchemyUnitOfWork:
+    return SqlAlchemyUnitOfWork(session)
+
+
+def get_ticket_client() -> TicketClient:
+    """Azure DevOps ticket client for the incident ticketing action. Tests override this to avoid
+    a real ADO call."""
+    return AdoTicketClient(get_settings())
 
 
 def get_document_repository(

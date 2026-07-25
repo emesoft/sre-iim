@@ -19,7 +19,8 @@ from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.resolve import NoAnalysisToResolveError, ResolveIncident
 from app.domain.documents.ports import DocumentRepository
 from app.domain.incidents.entities import Incident
-from app.domain.incidents.ports import IncidentRepository, LogFetcher
+from app.domain.incidents.ports import IncidentRepository, LogFetcher, TicketClient
+from app.domain.shared import UnitOfWork
 from app.infrastructure.events import BusProgressReporter, IncidentEventBus
 from app.interface.http.deps import (
     get_document_repository,
@@ -28,6 +29,8 @@ from app.interface.http.deps import (
     get_ingest_incident,
     get_log_fetcher_factory,
     get_resolve_incident,
+    get_ticket_client,
+    get_unit_of_work,
     resolve_background_incident_deps,
 )
 from app.interface.http.dto import mappers
@@ -241,4 +244,40 @@ async def resolve_incident(
     evidence = (
         await documents.evidence_refs(analysis.evidence_chunk_ids) if analysis else []
     )
+    return mappers.incident_detail(incident, analysis, evidence)
+
+
+@router.post("/{incident_id}/ticket", response_model=IncidentDetail)
+async def create_incident_ticket(
+    incident_id: uuid.UUID,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    documents: DocumentRepository = Depends(get_document_repository),
+    ticket_client: TicketClient = Depends(get_ticket_client),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+) -> IncidentDetail:
+    """Create an Azure DevOps work item for a genuinely new/unseen error and record its URL,
+    moving the incident to status "ticketed"."""
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    analysis = await repo.latest_analysis(incident_id)
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="incident has no analysis to file a ticket from",
+        )
+
+    title = f"[{analysis.severity.upper()}] {incident.service}: {analysis.summary}"
+    description = (
+        f"Root cause: {analysis.root_cause}\n\n"
+        f"Recommended action: {analysis.recommended_action}\n\n"
+        f"IIM incident: {incident_id}"
+    )
+    ticket_url = await ticket_client.create_ticket(title, description)
+    await repo.set_ticket_url(incident_id, ticket_url)
+    await uow.commit()
+    incident.ticket_url = ticket_url
+    incident.status = "ticketed"
+
+    evidence = await documents.evidence_refs(analysis.evidence_chunk_ids)
     return mappers.incident_detail(incident, analysis, evidence)

@@ -43,6 +43,7 @@ class IncidentRow(Base):
     context: Mapped[dict] = mapped_column(JSONB, nullable=False)
     status: Mapped[str] = mapped_column(Text, nullable=False, default="new")
     log_group: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ticket_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = _utcnow_column()
     updated_at: Mapped[datetime] = _utcnow_column()
 

@@ -17,6 +17,7 @@ def incident_to_domain(row: IncidentRow) -> Incident:
         context=row.context,
         status=row.status,
         log_group=row.log_group,
+        ticket_url=row.ticket_url,
         id=row.id,
         created_at=row.created_at,
         updated_at=row.updated_at,

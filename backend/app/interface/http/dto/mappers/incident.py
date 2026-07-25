@@ -66,5 +66,6 @@ def incident_detail(
         created_at=incident.created_at,
         updated_at=incident.updated_at,
         log_group=incident.log_group,
+        ticket_url=incident.ticket_url,
         analysis=analysis_out(analysis, evidence) if analysis else None,
     )

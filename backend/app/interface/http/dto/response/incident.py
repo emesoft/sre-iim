@@ -62,6 +62,7 @@ class IncidentDetail(BaseModel):
     created_at: datetime
     updated_at: datetime
     log_group: str | None = None
+    ticket_url: str | None = None
     analysis: AnalysisOut | None = None
 
 

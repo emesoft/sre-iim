@@ -9,6 +9,7 @@ import {
   MousePointerClick,
   Search,
   Sparkles,
+  Ticket,
 } from 'lucide-react'
 import { api, errText } from '../../lib/api'
 import type { IncidentDetail as Detail, LogSearchResult } from '../../lib/types'
@@ -119,13 +120,28 @@ export function IncidentDetail({
             {a && <Badge tone={a._cache === 'HIT' ? 'success' : 'neutral'}>cache {a._cache}</Badge>}
             <Badge>{d.source}</Badge>
           </div>
-          <div className="mt-2 font-mono text-[11px] text-muted">
+          <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted">
             fingerprint <span className="text-ink-2">{d.fingerprint}</span>
+            {d.ticket_url && (
+              <a
+                href={d.ticket_url}
+                target="_blank"
+                rel="noreferrer"
+                className="ml-1"
+              >
+                <Badge tone="purple">ticket ↗</Badge>
+              </a>
+            )}
           </div>
         </div>
-        {a && d.status !== 'resolved' && (
-          <ResolveButton incident={d} onResolved={(next) => setD(next)} />
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {a && !a.known_issue && !d.ticket_url && (
+            <TicketButton incident={d} onTicketed={(next) => setD(next)} />
+          )}
+          {a && d.status !== 'resolved' && (
+            <ResolveButton incident={d} onResolved={(next) => setD(next)} />
+          )}
+        </div>
       </div>
 
       {/* Known issue */}
@@ -260,6 +276,36 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
     <div className="px-5 py-4">
       <Eyebrow>{label}</Eyebrow>
       <p className="mt-1.5 leading-relaxed text-ink">{children}</p>
+    </div>
+  )
+}
+
+function TicketButton({
+  incident,
+  onTicketed,
+}: {
+  incident: Detail
+  onTicketed: (next: Detail) => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const create = () => {
+    setLoading(true)
+    setErr(null)
+    api
+      .post<Detail>(`/api/incidents/${incident.id}/ticket`, {})
+      .then(onTicketed)
+      .catch((e) => setErr(errText(e)))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button variant="ghost" onClick={create} disabled={loading}>
+        <Ticket size={15} /> {loading ? 'Creating…' : 'Create ADO ticket'}
+      </Button>
+      {err && <p className="max-w-[220px] text-right text-xs text-sev-critical">{err}</p>}
     </div>
   )
 }

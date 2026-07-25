@@ -22,6 +22,7 @@ __all__ = [
     "IncidentRepository",
     "AnalysisCacheRepository",
     "LogFetcher",
+    "TicketClient",
     "Clock",
     "UnitOfWork",
     "ProgressReporter",
@@ -83,6 +84,10 @@ class IncidentRepository(Protocol):
         follow-up analysis re-runs against the new content instead of hitting the stale cache."""
         ...
 
+    async def set_ticket_url(self, incident_id: uuid.UUID, ticket_url: str) -> None:
+        """Record a created tracking ticket and move the incident to status 'ticketed'."""
+        ...
+
 
 class AnalysisCacheRepository(Protocol):
     """Fingerprint-keyed cache mapping to a previously computed analysis, honoring a TTL."""
@@ -103,6 +108,13 @@ class LogFetcher(Protocol):
         end: datetime,
         filter_pattern: str | None = None,
     ) -> list[LogEvent]: ...
+
+
+class TicketClient(Protocol):
+    """Creates a tracking ticket for an incident in an external tracker (e.g. Azure DevOps).
+    Returns the created ticket's URL."""
+
+    async def create_ticket(self, title: str, description: str) -> str: ...
 
 
 class ProgressReporter(Protocol):

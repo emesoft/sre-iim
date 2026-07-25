@@ -27,6 +27,7 @@ from app.interface.http.deps import (
     get_embedder,
     get_log_fetcher_factory,
     get_session,
+    get_ticket_client,
 )
 from app.main import app
 from tests.sse_test_utils import iter_sse
@@ -71,6 +72,11 @@ class _FakeLogFetcher:
         ]
 
 
+class _FakeTicketClient:
+    async def create_ticket(self, title, description):
+        return "https://dev.azure.com/fake-org/fake-project/_workitems/edit/123"
+
+
 @pytest.fixture()
 async def client():
     engine = create_async_engine(_DB_URL)
@@ -99,6 +105,7 @@ async def client():
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
     app.dependency_overrides[get_log_fetcher_factory] = lambda: lambda service: _FakeLogFetcher()
+    app.dependency_overrides[get_ticket_client] = lambda: _FakeTicketClient()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -207,6 +214,27 @@ async def test_resolve_saves_case_and_next_similar_incident_flags_known_issue(cl
     assert known_issue is not None
     assert known_issue["incident_id"] == incident1_id
     assert known_issue["similarity"] == pytest.approx(1.0, abs=1e-6)
+
+
+async def test_create_ticket_sets_url_and_status(client):
+    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    incident_id = r.json()["incident_id"]
+    await _await_analyzed(client, incident_id)
+
+    ticket = await client.post(f"/api/incidents/{incident_id}/ticket")
+    assert ticket.status_code == 200, ticket.text
+    body = ticket.json()
+    assert body["status"] == "ticketed"
+    assert body["ticket_url"] == "https://dev.azure.com/fake-org/fake-project/_workitems/edit/123"
+
+    detail = (await client.get(f"/api/incidents/{incident_id}")).json()
+    assert detail["ticket_url"] == body["ticket_url"]
+    assert detail["status"] == "ticketed"
+
+
+async def test_create_ticket_404_for_unknown_incident(client):
+    r = await client.post("/api/incidents/00000000-0000-0000-0000-000000000000/ticket")
+    assert r.status_code == 404
 
 
 async def test_resolve_404_for_unknown_incident(client):

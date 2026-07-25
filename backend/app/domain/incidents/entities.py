@@ -21,6 +21,7 @@ class Incident:
     context: dict
     status: str = "new"  # new | analyzing | analyzed | failed | ticketed | resolved
     log_group: str | None = None
+    ticket_url: str | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

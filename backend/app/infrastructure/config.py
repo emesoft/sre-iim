@@ -59,6 +59,12 @@ class Settings(BaseSettings):
     # --- Cache ---
     cache_ttl_seconds: int = 1800  # 30 min, matches Step 0 CACHE_TTL_SECONDS
 
+    # --- Ticketing (Azure DevOps) ---
+    azdo_org: str | None = None
+    azdo_project: str | None = None
+    azdo_pat: str | None = None
+    azdo_work_item_type: str = "Bug"
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
