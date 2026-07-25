@@ -11,6 +11,7 @@ from app.interface.http.dto.response.incident import (
     LogEventOut,
     LogSearchResult,
 )
+from app.interface.http.dto.response.report import DailyReportOut, ReportIncidentOut
 
 __all__ = [
     "IncidentCreatedResponse",
@@ -23,4 +24,6 @@ __all__ = [
     "DocumentCreatedResponse",
     "DocumentSummary",
     "HealthResponse",
+    "DailyReportOut",
+    "ReportIncidentOut",
 ]

@@ -16,6 +16,7 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.documents.ingest import IngestDocument
+from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
@@ -136,6 +137,18 @@ def get_log_fetcher_factory() -> Callable[[str], LogFetcher]:
     avoid a real AWS call."""
     settings = get_settings()
     return lambda service: build_log_fetcher(service, settings)
+
+
+def get_daily_report(
+    session: AsyncSession = Depends(get_session),
+) -> DailyReport:
+    """GET /api/reports/daily flow: reuses the graph nodes' generic ChatModel for the digest
+    narration, selected the same way as the graph analyzer (decision 0016)."""
+    settings = get_settings()
+    return DailyReport(
+        incidents=SqlAlchemyIncidentRepository(session),
+        chat=select_chat_model(settings),
+    )
 
 
 def get_resolve_incident(

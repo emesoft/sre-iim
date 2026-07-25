@@ -1,6 +1,7 @@
 import {
   AlertTriangle,
   BookOpen,
+  ClipboardList,
   LayoutDashboard,
   Server,
   Settings,
@@ -8,7 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-export type View = 'overview' | 'incidents' | 'knowledge'
+export type View = 'overview' | 'incidents' | 'knowledge' | 'reports'
 
 export interface NavItem {
   view: View
@@ -41,6 +42,7 @@ export const NAV_SECTIONS: NavSection[] = [
     items: [
       { view: 'incidents', label: 'Incidents', icon: AlertTriangle },
       { view: 'knowledge', label: 'Knowledge Base', icon: BookOpen },
+      { view: 'reports', label: 'Reports', icon: ClipboardList },
     ],
   },
   {
@@ -66,5 +68,9 @@ export const VIEW_META: Record<View, { title: string; subtitle: string }> = {
   knowledge: {
     title: 'Knowledge Base',
     subtitle: 'Documents indexed for retrieval-augmented analysis',
+  },
+  reports: {
+    title: 'Reports',
+    subtitle: "Roll up a day's incidents into a Slack-postable digest",
   },
 }

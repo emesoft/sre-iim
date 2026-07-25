@@ -102,3 +102,20 @@ export interface Health {
 
 export type SourceType = 'runbook' | 'postmortem' | 'architecture' | 'vendor'
 export const SOURCE_TYPES: SourceType[] = ['runbook', 'postmortem', 'architecture', 'vendor']
+
+export interface ReportIncidentOut {
+  id: string
+  service: string
+  status: string
+  severity: string | null
+  summary: string | null
+  ticket_url: string | null
+}
+
+export interface DailyReportOut {
+  report_date: string
+  counts_by_severity: Record<string, number>
+  counts_by_status: Record<string, number>
+  incidents: ReportIncidentOut[]
+  slack_markdown: string
+}

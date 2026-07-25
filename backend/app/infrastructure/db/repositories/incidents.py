@@ -64,6 +64,21 @@ class SqlAlchemyIncidentRepository:
             for inc, an in rows
         ]
 
+    async def list_by_date_range(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[Incident, Analysis | None]]:
+        stmt = (
+            select(IncidentRow, AnalysisRow)
+            .join(AnalysisRow, AnalysisRow.incident_id == IncidentRow.id, isouter=True)
+            .where(IncidentRow.created_at >= start, IncidentRow.created_at < end)
+            .order_by(IncidentRow.created_at.desc())
+        )
+        rows = (await self._s.execute(stmt)).all()
+        return [
+            (incident_to_domain(inc), analysis_to_domain(an) if an is not None else None)
+            for inc, an in rows
+        ]
+
     async def add_analysis(self, analysis: Analysis) -> Analysis:
         row = AnalysisRow(
             incident_id=analysis.incident_id,
