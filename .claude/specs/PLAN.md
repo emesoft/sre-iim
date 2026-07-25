@@ -1,6 +1,10 @@
 # IIM — Build Plan / Backlog (Phase 1)
 
-- **Date:** 2026-07-17 · **Status:** Draft (design only — this is the backlog for later phases)
+- **Date:** 2026-07-17 · **Status:** Draft (design only — this is the backlog for later phases). Steps
+  2–4 below describe a Lambda/EventBridge auto-collector that was never built; T2.1's log search and
+  T4.2's ADO ticketing landed instead as **on-demand actions in the Postgres/FastAPI app** (SRE-triggered
+  from the incident UI, not alarm-triggered) — see
+  [2026-07-25-sre-workflow-log-search-known-issue-ticketing-report.md](./2026-07-25-sre-workflow-log-search-known-issue-ticketing-report.md).
 - **Related:** [SPEC.md](./SPEC.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [DATA_MODEL.md](./DATA_MODEL.md) · [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
 
 **Walking-skeleton strategy:** build a thin end-to-end path first with everything faked, then replace each

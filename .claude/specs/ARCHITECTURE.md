@@ -1,6 +1,10 @@
 # IIM — Architecture (Phase 1)
 
-- **Date:** 2026-07-17 · **Status:** Draft (design only)
+- **Date:** 2026-07-17 · **Status:** Draft (design only) — the Lambda/EventBridge auto-trigger pipeline
+  below was never built; the running app is a FastAPI/Postgres/pgvector backend the SRE drives manually
+  (create incident → search logs / resolve / ticket / report, all on-demand from the UI). See
+  [2026-07-25-sre-workflow-log-search-known-issue-ticketing-report.md](./2026-07-25-sre-workflow-log-search-known-issue-ticketing-report.md)
+  for what's actually implemented around log search, known-issue matching, ticketing, and reporting.
 - **Related:** [SPEC.md](./SPEC.md) · [DATA_MODEL.md](./DATA_MODEL.md) · [PLAN.md](./PLAN.md) · [OPEN_QUESTIONS.md](./OPEN_QUESTIONS.md)
 
 ## 1. Component overview

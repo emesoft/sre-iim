@@ -1,6 +1,10 @@
 # IIM — Data Model & Interfaces (Phase 1)
 
-- **Date:** 2026-07-17 · **Status:** Draft (design only)
+- **Date:** 2026-07-17 · **Status:** Draft (design only) — **superseded by the actual Postgres/pgvector
+  schema** (`backend/app/infrastructure/db/orm.py` + `backend/migrations/`); the DynamoDB tables below were
+  never built. `ticket_url` and the CloudWatch log-search collector described here **are** now
+  implemented, just on Postgres with a manual (not Lambda/EventBridge-triggered) flow — see
+  [2026-07-25-sre-workflow-log-search-known-issue-ticketing-report.md](./2026-07-25-sre-workflow-log-search-known-issue-ticketing-report.md).
 - **Related:** [SPEC.md](./SPEC.md) · [ARCHITECTURE.md](./ARCHITECTURE.md) · [PLAN.md](./PLAN.md)
 
 ## 1. DynamoDB tables

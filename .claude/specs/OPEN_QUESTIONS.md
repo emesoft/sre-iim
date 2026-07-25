@@ -13,6 +13,10 @@ Decisions already made during design are recorded at the bottom. The items below
   that will hold the PAT. (Do not paste the PAT here or in git.)
 - **Why:** the ADO REST endpoint is `https://dev.azure.com/{org}/{project}/_apis/wit/workitems/$Bug`, and the
   Lambda needs the exact secret name for its `secretsmanager:GetSecretValue` grant.
+- **Update (2026-07-25):** implemented as an on-demand action (`POST /api/incidents/{id}/ticket`), not a
+  Lambda — org/project/PAT are read straight from env (`AZDO_ORG`/`AZDO_PROJECT`/`AZDO_PAT`, no Secrets
+  Manager yet since there's no Lambda to grant access to). Still needs real org/project/PAT values to test
+  live; see the new design doc linked at the top of `PLAN.md`.
 
 ### Q2 — Exact `GCM` ECS service name + log group *(blocks T2.1 / T2.3)*
 - **Decided:** the single demo service is **`GCM`**, emitting **JSON logs with a `level` field**.
@@ -20,6 +24,10 @@ Decisions already made during design are recorded at the bottom. The items below
   should query (for the sandbox we build in Step 3, these are the names we choose; if pointing at an
   existing service instead, provide its real names).
 - **Why:** `AWSCollector` and the Logs Insights query key off these identifiers.
+- **Update (2026-07-25):** the log group is no longer config-resolved — the SRE types it into the incident
+  detail page's log-search panel per search (`POST /api/incidents/{id}/logs/search`), since there's no
+  auto-collector yet to need a fixed mapping. AWS auth is per-project SSO profiles
+  (`PROJECT_<SERVICE>_AWS_PROFILE`), not a single Lambda execution role — see the new design doc.
 
 ### Q3 — Confirmed Bedrock model id (APAC inference profile) *(blocks T2.2 runtime)*
 - **Decided:** default model **Claude Haiku 4.5**; optional Sonnet 5 escalation.
