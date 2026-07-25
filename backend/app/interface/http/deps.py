@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.documents.ingest import IngestDocument
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
+from app.application.incidents.resolve import ResolveIncident
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
 from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher
 from app.domain.llm import ChatModel
@@ -134,6 +135,20 @@ def get_log_fetcher_factory() -> Callable[[str], LogFetcher]:
     avoid a real AWS call."""
     settings = get_settings()
     return lambda service: build_log_fetcher(service, settings)
+
+
+def get_resolve_incident(
+    session: AsyncSession = Depends(get_session),
+    embedder: Embedder = Depends(get_embedder),
+) -> ResolveIncident:
+    """POST /api/incidents/{id}/resolve flow: mark resolved + save the case for known-issue
+    matching, reusing the same embedder as document ingestion."""
+    return ResolveIncident(
+        incidents=SqlAlchemyIncidentRepository(session),
+        documents=SqlAlchemyDocumentRepository(session),
+        embedder=embedder,
+        uow=SqlAlchemyUnitOfWork(session),
+    )
 
 
 def get_document_repository(

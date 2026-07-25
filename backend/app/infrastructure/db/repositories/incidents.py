@@ -74,6 +74,8 @@ class SqlAlchemyIncidentRepository:
             cache_state=analysis.cache_state,
             model_id=analysis.model_id,
             evidence_chunk_ids=list(analysis.evidence_chunk_ids),
+            known_issue_incident_id=analysis.known_issue_incident_id,
+            known_issue_similarity=analysis.known_issue_similarity,
         )
         self._s.add(row)
         await self._s.flush()

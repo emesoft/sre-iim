@@ -29,7 +29,7 @@ export function Incidents({
         />
       </aside>
       <section className="min-h-0 overflow-y-auto">
-        <IncidentDetail incidentId={selectedId} />
+        <IncidentDetail incidentId={selectedId} onSelectIncident={onSelect} />
       </section>
     </div>
   )

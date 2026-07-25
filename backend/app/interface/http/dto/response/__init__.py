@@ -7,6 +7,7 @@ from app.interface.http.dto.response.incident import (
     IncidentCreatedResponse,
     IncidentDetail,
     IncidentSummary,
+    KnownIssueOut,
     LogEventOut,
     LogSearchResult,
 )
@@ -16,6 +17,7 @@ __all__ = [
     "AnalysisOut",
     "IncidentSummary",
     "IncidentDetail",
+    "KnownIssueOut",
     "LogEventOut",
     "LogSearchResult",
     "DocumentCreatedResponse",

@@ -85,6 +85,8 @@ class IngestIncident:
                     cache_state="MISS",
                     model_id=draft.model_id,
                     evidence_chunk_ids=list(draft.evidence_chunk_ids),
+                    known_issue_incident_id=draft.known_issue_incident_id,
+                    known_issue_similarity=draft.known_issue_similarity,
                 )
             )
             await self.cache.put(
@@ -140,4 +142,6 @@ def _copy_analysis(incident_id, source: Analysis, *, cache_state: str) -> Analys
         cache_state=cache_state,
         model_id=source.model_id,
         evidence_chunk_ids=list(source.evidence_chunk_ids),
+        known_issue_incident_id=source.known_issue_incident_id,
+        known_issue_similarity=source.known_issue_similarity,
     )

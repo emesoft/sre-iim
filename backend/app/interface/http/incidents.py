@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.application.incidents.ingest import IngestIncident
+from app.application.incidents.resolve import NoAnalysisToResolveError, ResolveIncident
 from app.domain.documents.ports import DocumentRepository
 from app.domain.incidents.entities import Incident
 from app.domain.incidents.ports import IncidentRepository, LogFetcher
@@ -26,10 +27,15 @@ from app.interface.http.deps import (
     get_incident_repository,
     get_ingest_incident,
     get_log_fetcher_factory,
+    get_resolve_incident,
     resolve_background_incident_deps,
 )
 from app.interface.http.dto import mappers
-from app.interface.http.dto.request import IncidentIngestRequest, LogSearchRequest
+from app.interface.http.dto.request import (
+    IncidentIngestRequest,
+    LogSearchRequest,
+    ResolveIncidentRequest,
+)
 from app.interface.http.dto.response import (
     IncidentCreatedResponse,
     IncidentDetail,
@@ -207,6 +213,30 @@ async def get_incident(
     incident = await repo.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    analysis = await repo.latest_analysis(incident_id)
+    evidence = (
+        await documents.evidence_refs(analysis.evidence_chunk_ids) if analysis else []
+    )
+    return mappers.incident_detail(incident, analysis, evidence)
+
+
+@router.post("/{incident_id}/resolve", response_model=IncidentDetail)
+async def resolve_incident(
+    incident_id: uuid.UUID,
+    body: ResolveIncidentRequest,
+    resolve: ResolveIncident = Depends(get_resolve_incident),
+    repo: IncidentRepository = Depends(get_incident_repository),
+    documents: DocumentRepository = Depends(get_document_repository),
+) -> IncidentDetail:
+    """Mark an incident resolved and save it as a known-issue case (source_type="incident") so a
+    future similar incident surfaces it via the existing RAG retrieval path."""
+    try:
+        incident = await resolve.resolve(incident_id, resolution_notes=body.resolution_notes)
+    except NoAnalysisToResolveError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
     analysis = await repo.latest_analysis(incident_id)
     evidence = (
         await documents.evidence_refs(analysis.evidence_chunk_ids) if analysis else []

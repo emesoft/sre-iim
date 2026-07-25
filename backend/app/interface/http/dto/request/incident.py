@@ -23,3 +23,9 @@ class LogSearchRequest(BaseModel):
     filter_pattern: str | None = Field(
         default=None, description="Insights `like` regex; defaults to a generic error pattern."
     )
+
+
+class ResolveIncidentRequest(BaseModel):
+    """`POST /api/incidents/{id}/resolve` body: how the incident was actually fixed."""
+
+    resolution_notes: str = Field(..., min_length=1)

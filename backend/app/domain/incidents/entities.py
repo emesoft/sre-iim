@@ -53,6 +53,10 @@ class AnalysisDraft:
     confidence: object
     model_id: str
     evidence_chunk_ids: tuple[uuid.UUID, ...] = ()
+    # Set by RagAnalyzer when a retrieved chunk is a past resolved incident above the
+    # known-issue similarity threshold — "we've seen this before, here's how it was fixed".
+    known_issue_incident_id: uuid.UUID | None = None
+    known_issue_similarity: float | None = None
 
 
 @dataclass
@@ -68,5 +72,7 @@ class Analysis:
     cache_state: str  # HIT | MISS
     model_id: str
     evidence_chunk_ids: list[uuid.UUID] = field(default_factory=list)
+    known_issue_incident_id: uuid.UUID | None = None
+    known_issue_similarity: float | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None

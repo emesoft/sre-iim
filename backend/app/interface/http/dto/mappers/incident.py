@@ -10,6 +10,7 @@ from app.interface.http.dto.response.incident import (
     AnalysisOut,
     IncidentDetail,
     IncidentSummary,
+    KnownIssueOut,
 )
 
 
@@ -26,6 +27,14 @@ def analysis_out(analysis: Analysis, evidence: Sequence[EvidenceRef] | None = No
             {"chunk_id": str(r.chunk_id), "source_type": r.source_type, "title": r.title}
             for r in (evidence or [])
         ],
+        known_issue=(
+            KnownIssueOut(
+                incident_id=analysis.known_issue_incident_id,
+                similarity=analysis.known_issue_similarity,
+            )
+            if analysis.known_issue_incident_id is not None
+            else None
+        ),
     )
 
 

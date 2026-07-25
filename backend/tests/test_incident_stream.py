@@ -102,9 +102,9 @@ async def db():
     async with maker() as s:
         await s.execute(delete(AnalysisCacheRow))
         await s.execute(delete(AnalysisRow))
-        await s.execute(delete(IncidentRow))
         await s.execute(delete(DocChunkRow))
-        await s.execute(delete(DocumentRow))
+        await s.execute(delete(DocumentRow))  # may reference incidents.id (known-issue cases)
+        await s.execute(delete(IncidentRow))
         await s.commit()
 
     yield maker

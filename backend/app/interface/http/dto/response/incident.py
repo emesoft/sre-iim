@@ -16,6 +16,13 @@ class IncidentCreatedResponse(BaseModel):
     stream: str
 
 
+class KnownIssueOut(BaseModel):
+    """A past resolved incident this analysis matched, above the known-issue similarity threshold."""
+
+    incident_id: uuid.UUID
+    similarity: float
+
+
 class AnalysisOut(BaseModel):
     """The persisted 5-field analysis plus cache state and evidence refs."""
 
@@ -27,6 +34,7 @@ class AnalysisOut(BaseModel):
     model_id: str
     cache_state: str = Field(serialization_alias="_cache")  # HIT | MISS
     evidence: list[dict] = Field(default_factory=list)
+    known_issue: KnownIssueOut | None = None
 
 
 class IncidentSummary(BaseModel):

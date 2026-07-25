@@ -86,9 +86,9 @@ async def client():
     async with maker() as s:
         await s.execute(delete(AnalysisCacheRow))
         await s.execute(delete(AnalysisRow))
-        await s.execute(delete(IncidentRow))
         await s.execute(delete(DocChunkRow))
-        await s.execute(delete(DocumentRow))
+        await s.execute(delete(DocumentRow))  # may reference incidents.id (known-issue cases)
+        await s.execute(delete(IncidentRow))
         await s.commit()
 
     async def _override_session():
@@ -183,6 +183,38 @@ async def test_log_search_merges_logs_and_reanalyzes(client):
     detail = (await client.get(f"/api/incidents/{incident_id}")).json()
     assert detail["log_group"] == "/ecs/prod-storefront-logs"
     assert detail["context"]["sample_logs"][0]["message"] == body["log_events"][0]["message"]
+
+
+async def test_resolve_saves_case_and_next_similar_incident_flags_known_issue(client):
+    r1 = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    incident1_id = r1.json()["incident_id"]
+    await _await_analyzed(client, incident1_id)
+
+    resolve = await client.post(
+        f"/api/incidents/{incident1_id}/resolve",
+        json={"resolution_notes": "Rolled back to 1.7.9 and bumped container heap size."},
+    )
+    assert resolve.status_code == 200, resolve.text
+    assert resolve.json()["status"] == "resolved"
+
+    other_ctx = {**_CTX, "sample_logs": [{"message": "java.lang.OutOfMemoryError: different trace"}]}
+    r2 = await client.post("/api/incidents", json={"source": "manual", "context": other_ctx})
+    incident2_id = r2.json()["incident_id"]
+    await _await_analyzed(client, incident2_id)
+
+    detail2 = (await client.get(f"/api/incidents/{incident2_id}")).json()
+    known_issue = detail2["analysis"]["known_issue"]
+    assert known_issue is not None
+    assert known_issue["incident_id"] == incident1_id
+    assert known_issue["similarity"] == pytest.approx(1.0, abs=1e-6)
+
+
+async def test_resolve_404_for_unknown_incident(client):
+    r = await client.post(
+        "/api/incidents/00000000-0000-0000-0000-000000000000/resolve",
+        json={"resolution_notes": "n/a"},
+    )
+    assert r.status_code == 404
 
 
 async def test_log_search_404_for_unknown_incident(client):

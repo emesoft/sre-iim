@@ -7,6 +7,11 @@ export interface EvidenceRef {
   title: string
 }
 
+export interface KnownIssueOut {
+  incident_id: string
+  similarity: number
+}
+
 export interface AnalysisOut {
   severity: string
   summary: string
@@ -16,6 +21,7 @@ export interface AnalysisOut {
   model_id: string
   _cache: 'HIT' | 'MISS'
   evidence: EvidenceRef[]
+  known_issue: KnownIssueOut | null
 }
 
 export interface IncidentSummary {

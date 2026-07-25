@@ -64,6 +64,10 @@ class AnalysisRow(Base):
     evidence_chunk_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=False, default=list, server_default="{}"
     )
+    known_issue_incident_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
+    )
+    known_issue_similarity: Mapped[float | None] = mapped_column(Numeric, nullable=True)
     created_at: Mapped[datetime] = _utcnow_column()
 
 
@@ -83,9 +87,12 @@ class DocumentRow(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title: Mapped[str] = mapped_column(Text, nullable=False)
     source_type: Mapped[str] = mapped_column(Text, nullable=False)
-    # runbook | postmortem | architecture | vendor
+    # runbook | postmortem | architecture | vendor | incident
     service: Mapped[str | None] = mapped_column(Text, nullable=True)
     tags: Mapped[list[str]] = mapped_column(ARRAY(Text), nullable=False, default=list, server_default="{}")
+    incident_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
+    )
     created_at: Mapped[datetime] = _utcnow_column()
     updated_at: Mapped[datetime] = _utcnow_column()
 

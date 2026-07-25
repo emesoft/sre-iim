@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
+  CheckCircle2,
   Cpu,
   FileSearch,
   FileText,
@@ -14,6 +15,8 @@ import type { IncidentDetail as Detail, LogSearchResult } from '../../lib/types'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import { Modal } from '../../components/ui/Modal'
+import { Textarea } from '../../components/ui/Textarea'
 import { SeverityBadge } from '../../components/ui/SeverityBadge'
 import { StatusBadge } from '../../components/ui/StatusBadge'
 import { Eyebrow } from '../../components/ui/Eyebrow'
@@ -35,7 +38,13 @@ function toLocalInputValue(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-export function IncidentDetail({ incidentId }: { incidentId: string | null }) {
+export function IncidentDetail({
+  incidentId,
+  onSelectIncident,
+}: {
+  incidentId: string | null
+  onSelectIncident: (id: string) => void
+}) {
   const [d, setD] = useState<Detail | null>(null)
   const [err, setErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -100,19 +109,48 @@ export function IncidentDetail({ incidentId }: { incidentId: string | null }) {
   return (
     <div key={incidentId} className="animate-in mx-auto max-w-3xl space-y-5 p-6">
       {/* Header */}
-      <div>
-        <Eyebrow>{incidentRef(d.id)}</Eyebrow>
-        <div className="mt-1.5 flex flex-wrap items-center gap-2">
-          <h2 className="font-display text-2xl font-extrabold tracking-tight text-ink">{d.service}</h2>
-          {a && <SeverityBadge severity={a.severity} />}
-          <StatusBadge status={d.status} />
-          {a && <Badge tone={a._cache === 'HIT' ? 'success' : 'neutral'}>cache {a._cache}</Badge>}
-          <Badge>{d.source}</Badge>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <Eyebrow>{incidentRef(d.id)}</Eyebrow>
+          <div className="mt-1.5 flex flex-wrap items-center gap-2">
+            <h2 className="font-display text-2xl font-extrabold tracking-tight text-ink">{d.service}</h2>
+            {a && <SeverityBadge severity={a.severity} />}
+            <StatusBadge status={d.status} />
+            {a && <Badge tone={a._cache === 'HIT' ? 'success' : 'neutral'}>cache {a._cache}</Badge>}
+            <Badge>{d.source}</Badge>
+          </div>
+          <div className="mt-2 font-mono text-[11px] text-muted">
+            fingerprint <span className="text-ink-2">{d.fingerprint}</span>
+          </div>
         </div>
-        <div className="mt-2 font-mono text-[11px] text-muted">
-          fingerprint <span className="text-ink-2">{d.fingerprint}</span>
-        </div>
+        {a && d.status !== 'resolved' && (
+          <ResolveButton incident={d} onResolved={(next) => setD(next)} />
+        )}
       </div>
+
+      {/* Known issue */}
+      {a?.known_issue && (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-2xl border p-4"
+          style={{
+            borderColor: 'var(--accent-weak)',
+            background: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+          }}
+        >
+          <Sparkles size={18} className="shrink-0 text-accent" />
+          <p className="flex-1 text-sm text-ink-2">
+            <span className="font-semibold text-ink">Known issue</span> — matches a previously
+            resolved incident ({Math.round(a.known_issue.similarity * 100)}% similar).
+          </p>
+          <button
+            type="button"
+            onClick={() => onSelectIncident(a.known_issue!.incident_id)}
+            className="shrink-0 text-sm font-semibold text-accent transition hover:text-accent-strong"
+          >
+            View case →
+          </button>
+        </div>
+      )}
 
       {/* Analysis */}
       {analyzing && !stream.result && !stream.error ? (
@@ -223,6 +261,66 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
       <Eyebrow>{label}</Eyebrow>
       <p className="mt-1.5 leading-relaxed text-ink">{children}</p>
     </div>
+  )
+}
+
+function ResolveButton({
+  incident,
+  onResolved,
+}: {
+  incident: Detail
+  onResolved: (next: Detail) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!notes.trim()) return
+    setLoading(true)
+    setErr(null)
+    api
+      .post<Detail>(`/api/incidents/${incident.id}/resolve`, { resolution_notes: notes.trim() })
+      .then((next) => {
+        onResolved(next)
+        setOpen(false)
+      })
+      .catch((e) => setErr(errText(e)))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <>
+      <Button variant="ghost" onClick={() => setOpen(true)}>
+        <CheckCircle2 size={15} /> Mark resolved
+      </Button>
+      <Modal open={open} title="Mark resolved" onClose={() => setOpen(false)}>
+        <p className="text-sm text-ink-2">
+          Saves this case (summary, root cause, fix) so a similar incident later is flagged as a
+          known issue.
+        </p>
+        <form onSubmit={submit} className="space-y-3">
+          <Textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="How was this fixed? (e.g. rolled back to 1.7.9 and bumped container heap size)"
+            rows={4}
+            autoFocus
+          />
+          {err && <p className="text-xs text-sev-critical">{err}</p>}
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={loading || !notes.trim()}>
+              {loading ? 'Saving…' : 'Save & resolve'}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </>
   )
 }
 

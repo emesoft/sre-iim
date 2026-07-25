@@ -18,6 +18,11 @@ from app.domain.incidents.entities import AnalysisDraft
 from app.domain.incidents.ports import Analyzer, NullReporter, ProgressReporter
 from app.domain.incidents.prompts import build_retrieval_query
 
+# A retrieved chunk from a past resolved incident (source_type="incident") at or above this
+# similarity is treated as "we've seen this before" — surfaced to the SRE as a known-issue match
+# instead of a fresh diagnosis. Tuned conservatively; revisit once real matches accumulate.
+KNOWN_ISSUE_SIMILARITY_THRESHOLD = 0.85
+
 
 @dataclass
 class RagAnalyzer:
@@ -38,7 +43,20 @@ class RagAnalyzer:
         await reporter.stage("retrieve", f"{len(chunks)} evidence chunk{'' if len(chunks) == 1 else 's'}")
         await reporter.stage("analyze")
         draft = await self.base.analyze(context, evidence=chunks)
-        return replace(draft, evidence_chunk_ids=tuple(chunk.id for chunk in chunks))
+        known = next(
+            (
+                c
+                for c in chunks
+                if c.source_type == "incident" and c.similarity >= KNOWN_ISSUE_SIMILARITY_THRESHOLD
+            ),
+            None,
+        )
+        return replace(
+            draft,
+            evidence_chunk_ids=tuple(chunk.id for chunk in chunks),
+            known_issue_incident_id=known.incident_id if known else None,
+            known_issue_similarity=known.similarity if known else None,
+        )
 
     async def _retrieve(self, context: dict) -> list[RetrievedChunk]:
         query = build_retrieval_query(context)
