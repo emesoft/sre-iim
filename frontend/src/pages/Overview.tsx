@@ -41,7 +41,12 @@ export function Overview({
   if (error) {
     return (
       <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
-        <ErrorState detail={error} onRetry={onRetry} className="animate-in mt-2" />
+        <ErrorState
+          detail={error}
+          unreachable={data.unreachable}
+          onRetry={onRetry}
+          className="animate-in mt-2"
+        />
       </div>
     )
   }

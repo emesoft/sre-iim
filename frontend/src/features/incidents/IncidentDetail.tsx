@@ -11,7 +11,7 @@ import {
   Sparkles,
   Ticket,
 } from 'lucide-react'
-import { api, errText } from '../../lib/api'
+import { api, errText, isUnreachable } from '../../lib/api'
 import type { IncidentDetail as Detail, LogSearchResult } from '../../lib/types'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
@@ -48,6 +48,7 @@ export function IncidentDetail({
 }) {
   const [d, setD] = useState<Detail | null>(null)
   const [err, setErr] = useState<string | null>(null)
+  const [unreachable, setUnreachable] = useState(false)
   const [loading, setLoading] = useState(false)
 
   const fetchDetail = useCallback((id: string) => {
@@ -56,7 +57,11 @@ export function IncidentDetail({
     api
       .get<Detail>(`/api/incidents/${id}`)
       .then((r) => alive && setD(r))
-      .catch((e) => alive && setErr(errText(e)))
+      .catch((e) => {
+        if (!alive) return
+        setErr(errText(e))
+        setUnreachable(isUnreachable(e))
+      })
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
@@ -100,7 +105,7 @@ export function IncidentDetail({
   if (err) {
     return (
       <div className="p-6">
-        <ErrorState detail={err} />
+        <ErrorState detail={err} unreachable={unreachable} />
       </div>
     )
   }

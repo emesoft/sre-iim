@@ -39,6 +39,16 @@ export function errText(e: unknown): string {
   return String(e)
 }
 
+/**
+ * True only when the request never got a response at all (the backend process is down/
+ * unreachable — a network-level `fetch` failure). An `ApiError` means the backend *did*
+ * respond, just with a non-2xx status (e.g. a 500 from a downstream failure) — a different
+ * problem with a different fix, so the UI shouldn't tell the user to go start the backend.
+ */
+export function isUnreachable(e: unknown): boolean {
+  return !(e instanceof ApiError)
+}
+
 export const api = {
   get: <T>(path: string): Promise<T> => fetch(path).then((r) => handle<T>(r)),
   post: <T>(path: string, body: unknown): Promise<T> =>

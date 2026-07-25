@@ -22,6 +22,7 @@ export function Incidents({
           rows={data.incidents}
           loading={data.loading}
           error={data.error}
+          unreachable={data.unreachable}
           query={query}
           selectedId={selectedId}
           onSelect={onSelect}

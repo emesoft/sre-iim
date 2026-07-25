@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Check, Clipboard, FileText, ListChecks } from 'lucide-react'
-import { api, errText } from '../lib/api'
+import { api, errText, isUnreachable } from '../lib/api'
 import type { DailyReportOut } from '../lib/types'
 import { Card, CardHeader } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
@@ -23,6 +23,7 @@ export function Reports() {
   const [report, setReport] = useState<DailyReportOut | null>(null)
   const [loading, setLoading] = useState(true)
   const [err, setErr] = useState<string | null>(null)
+  const [unreachable, setUnreachable] = useState(false)
   const [copied, setCopied] = useState(false)
 
   useEffect(() => {
@@ -33,7 +34,11 @@ export function Reports() {
     api
       .get<DailyReportOut>(`/api/reports/daily?date=${date}`)
       .then((r) => alive && setReport(r))
-      .catch((e) => alive && setErr(errText(e)))
+      .catch((e) => {
+        if (!alive) return
+        setErr(errText(e))
+        setUnreachable(isUnreachable(e))
+      })
       .finally(() => alive && setLoading(false))
     return () => {
       alive = false
@@ -64,7 +69,7 @@ export function Reports() {
         </div>
 
         {err ? (
-          <ErrorState detail={err} />
+          <ErrorState detail={err} unreachable={unreachable} />
         ) : loading || !report ? (
           <div className="space-y-3">
             <Skeleton className="h-24 rounded-2xl" />
