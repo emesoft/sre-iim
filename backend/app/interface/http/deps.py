@@ -7,7 +7,7 @@ a disposable DB without calling Bedrock.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -38,7 +38,7 @@ from app.infrastructure.llm.chat import BedrockChatModel, DeepSeekChatModel
 from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
-from app.infrastructure.logs.cloudwatch_fetcher import CloudWatchLogFetcher
+from app.infrastructure.logs.factory import build_log_fetcher
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -128,10 +128,12 @@ def get_ingest_incident(
     )
 
 
-def get_log_fetcher() -> LogFetcher:
-    """CloudWatch Logs Insights fetcher for the incident log-search action. Tests override this to
+def get_log_fetcher_factory() -> Callable[[str], LogFetcher]:
+    """Resolves a `LogFetcher` for a given incident's `service` (project -> cloud/account),
+    per `PROJECT_<SERVICE>_*` env config (`infrastructure/config.py`). Tests override this to
     avoid a real AWS call."""
-    return CloudWatchLogFetcher(get_settings())
+    settings = get_settings()
+    return lambda service: build_log_fetcher(service, settings)
 
 
 def get_document_repository(

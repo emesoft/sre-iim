@@ -6,6 +6,8 @@ wraps the analysis. See `.claude/specs/SPEC.md` section 13 for the full env var 
 pydantic-settings docs: https://docs.pydantic.dev/latest/concepts/pydantic_settings/
 """
 
+import os
+from dataclasses import dataclass
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -66,3 +68,32 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Cached settings singleton."""
     return Settings()
+
+
+@dataclass(frozen=True)
+class ProjectConfig:
+    """Per-project cloud config. Each project (incident `service`) may live on a different
+    cloud/account — e.g. GCM on AWS today, another project on Azure/GCP later — so credentials
+    and region are resolved per project rather than from one global setting.
+
+    Env convention: `PROJECT_<SERVICE>_CLOUD` (default "aws"); AWS-specific:
+    `PROJECT_<SERVICE>_AWS_PROFILE` (an SSO profile name from `~/.aws/config`, e.g.
+    "GCM-Prod-ReadOnlyAccess") and `PROJECT_<SERVICE>_AWS_REGION` (falls back to `aws_region`).
+    Azure/GCP keys aren't wired yet — `cloud` is already generic so adding them later is additive.
+    """
+
+    cloud: str
+    aws_profile: str | None = None
+    aws_region: str | None = None
+
+
+def get_project_config(service: str, settings: Settings) -> ProjectConfig:
+    """Resolve `service`'s cloud config from `PROJECT_<SERVICE>_*` env vars. A project with no
+    dedicated block still works — it falls back to the global AWS region and default credential
+    chain — so this is additive, not a required setup step per project."""
+    prefix = f"PROJECT_{service.upper()}_"
+    return ProjectConfig(
+        cloud=os.environ.get(f"{prefix}CLOUD", "aws"),
+        aws_profile=os.environ.get(f"{prefix}AWS_PROFILE"),
+        aws_region=os.environ.get(f"{prefix}AWS_REGION", settings.aws_region),
+    )

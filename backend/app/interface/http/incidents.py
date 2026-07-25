@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -25,7 +25,7 @@ from app.interface.http.deps import (
     get_event_bus,
     get_incident_repository,
     get_ingest_incident,
-    get_log_fetcher,
+    get_log_fetcher_factory,
     resolve_background_incident_deps,
 )
 from app.interface.http.dto import mappers
@@ -150,14 +150,16 @@ async def search_incident_logs(
     repo: IncidentRepository = Depends(get_incident_repository),
     documents: DocumentRepository = Depends(get_document_repository),
     ingest: IngestIncident = Depends(get_ingest_incident),
-    log_fetcher: LogFetcher = Depends(get_log_fetcher),
+    log_fetcher_factory: Callable[[str], LogFetcher] = Depends(get_log_fetcher_factory),
 ) -> LogSearchResult:
-    """Fetch real log lines for `log_group` via CloudWatch Logs Insights, merge them into the
-    incident's context as `sample_logs`, and re-run analysis grounded in the real logs."""
+    """Fetch real log lines for `log_group` via the incident's project cloud (CloudWatch today),
+    merge them into the incident's context as `sample_logs`, and re-run analysis grounded in the
+    real logs."""
     incident = await repo.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
 
+    log_fetcher = log_fetcher_factory(incident.service)
     events = await log_fetcher.fetch_logs(
         body.log_group, body.start, body.end, body.filter_pattern
     )

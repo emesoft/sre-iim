@@ -22,7 +22,12 @@ from app.infrastructure.db.orm import (
     DocumentRow,
     IncidentRow,
 )
-from app.interface.http.deps import get_base_analyzer, get_embedder, get_log_fetcher, get_session
+from app.interface.http.deps import (
+    get_base_analyzer,
+    get_embedder,
+    get_log_fetcher_factory,
+    get_session,
+)
 from app.main import app
 from tests.sse_test_utils import iter_sse
 
@@ -93,7 +98,7 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
-    app.dependency_overrides[get_log_fetcher] = lambda: _FakeLogFetcher()
+    app.dependency_overrides[get_log_fetcher_factory] = lambda: lambda service: _FakeLogFetcher()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

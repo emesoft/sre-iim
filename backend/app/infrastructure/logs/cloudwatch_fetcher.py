@@ -4,7 +4,12 @@ Runs a Logs Insights query against one log group for a time window and returns m
 (most recent first). The blocking boto3 calls are offloaded with `asyncio.to_thread`, same pattern
 as `BedrockAnalyzer`, so they don't block the request event loop.
 
+Each project/account authenticates via its own AWS SSO profile (from the host's `~/.aws/config`,
+mounted read-only into the container) rather than static keys — `profile` selects which one, so
+the same adapter works across every AWS account/project without per-project code.
+
 boto3 CloudWatch Logs Insights: https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/logs.html
+boto3 SSO profiles: https://boto3.amazonaws.com/v1/documentation/api/latest/guide/credentials.html#sso
 """
 
 from __future__ import annotations
@@ -16,7 +21,6 @@ from datetime import UTC, datetime
 import boto3
 
 from app.domain.incidents.entities import LogEvent
-from app.infrastructure.config import Settings
 
 _POLL_INTERVAL_SECONDS = 1.0
 _MAX_POLLS = 30
@@ -28,15 +32,23 @@ _DEFAULT_QUERY = (
 
 
 class CloudWatchLogFetcher:
-    """LogFetcher backed by CloudWatch Logs Insights (`logs:StartQuery`/`GetQueryResults`)."""
+    """LogFetcher backed by CloudWatch Logs Insights (`logs:StartQuery`/`GetQueryResults`).
 
-    def __init__(self, settings: Settings) -> None:
-        self._settings = settings
+    `profile` is an AWS SSO profile name (e.g. "GCM-Prod-ReadOnlyAccess") from `~/.aws/config`;
+    `None` falls back to the default credential chain. If the SSO session has expired, boto3
+    raises clearly (`UnauthorizedSSOTokenError`) — the fix is for the SRE to run `aws sso login
+    --profile <name>` on the host, not something this adapter can resolve itself.
+    """
+
+    def __init__(self, *, region: str, profile: str | None = None) -> None:
+        self._region = region
+        self._profile = profile
         self._client = None
 
     def _get_client(self):
         if self._client is None:
-            self._client = boto3.client("logs", region_name=self._settings.aws_region)
+            session = boto3.Session(profile_name=self._profile) if self._profile else boto3.Session()
+            self._client = session.client("logs", region_name=self._region)
         return self._client
 
     async def fetch_logs(

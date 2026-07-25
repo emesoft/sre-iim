@@ -36,6 +36,11 @@ services:
         condition: service_healthy
     ports:
       - "8000:8000"
+    volumes:
+      # Mounts the host's AWS SSO profiles/cached tokens so CloudWatch log search can authenticate
+      # per-project (PROJECT_<SERVICE>_AWS_PROFILE, see backend/app/infrastructure/config.py) —
+      # run `aws sso login --profile <name>` on the host first; the container only reads the cache.
+      - ${AWS_CONFIG_DIR:-~/.aws}:/root/.aws:ro
 
   frontend:
     build: ./frontend
