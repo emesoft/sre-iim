@@ -31,7 +31,7 @@ export function ErrorState({
       <h3 className="font-display text-base font-bold text-ink">Can’t reach the backend</h3>
       <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink-2">
         The API on <span className="font-mono text-ink">:8000</span> didn’t respond. Start it with{' '}
-        <span className="font-mono text-ink">docker compose -f infra/docker-compose.yml up</span>, then
+        <span className="font-mono text-ink">docker compose up</span> from the repo root, then
         retry.
       </p>
       <code className="mt-4 max-w-md truncate rounded-lg bg-surface-2 px-3 py-1.5 font-mono text-xs text-ink-2">
