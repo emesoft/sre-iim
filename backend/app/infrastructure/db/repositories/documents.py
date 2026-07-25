@@ -26,6 +26,7 @@ class SqlAlchemyDocumentRepository:
             source_type=document.source_type,
             service=document.service,
             tags=list(document.tags),
+            incident_id=document.incident_id,
         )
         self._s.add(row)
         await self._s.flush()
@@ -88,9 +89,9 @@ class SqlAlchemyRetriever:
         min_similarity: float = 0.0,
     ) -> list[RetrievedChunk]:
         distance = DocChunkRow.embedding.cosine_distance(query_embedding)
-        stmt = select(DocChunkRow, DocumentRow.title, distance.label("distance")).join(
-            DocumentRow, DocumentRow.id == DocChunkRow.document_id
-        )
+        stmt = select(
+            DocChunkRow, DocumentRow.title, DocumentRow.incident_id, distance.label("distance")
+        ).join(DocumentRow, DocumentRow.id == DocChunkRow.document_id)
         if service is not None:
             stmt = stmt.where(or_(DocChunkRow.service == service, DocChunkRow.service.is_(None)))
         if source_type is not None:
@@ -99,7 +100,7 @@ class SqlAlchemyRetriever:
 
         rows = (await self._s.execute(stmt)).all()
         results: list[RetrievedChunk] = []
-        for row, title, dist in rows:
+        for row, title, incident_id, dist in rows:
             similarity = 1.0 - float(dist)
             if similarity >= min_similarity:
                 results.append(
@@ -111,6 +112,7 @@ class SqlAlchemyRetriever:
                         title=title,
                         content=row.content,
                         similarity=similarity,
+                        incident_id=incident_id,
                     )
                 )
         return results

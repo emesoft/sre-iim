@@ -22,6 +22,7 @@ export function Incidents({
           rows={data.incidents}
           loading={data.loading}
           error={data.error}
+          unreachable={data.unreachable}
           query={query}
           selectedId={selectedId}
           onSelect={onSelect}
@@ -29,7 +30,7 @@ export function Incidents({
         />
       </aside>
       <section className="min-h-0 overflow-y-auto">
-        <IncidentDetail incidentId={selectedId} />
+        <IncidentDetail incidentId={selectedId} onSelectIncident={onSelect} />
       </section>
     </div>
   )

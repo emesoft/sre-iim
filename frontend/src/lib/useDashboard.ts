@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { api, errText } from './api'
+import { api, errText, isUnreachable } from './api'
 import type { DocumentSummary, IncidentSummary } from './types'
 
 export interface DashboardData {
@@ -7,6 +7,7 @@ export interface DashboardData {
   docs: DocumentSummary[]
   loading: boolean
   error: string | null
+  unreachable: boolean
 }
 
 /**
@@ -19,6 +20,7 @@ export function useDashboard(refreshKey: number): DashboardData {
   const [docs, setDocs] = useState<DocumentSummary[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [unreachable, setUnreachable] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -34,7 +36,9 @@ export function useDashboard(refreshKey: number): DashboardData {
         setError(null)
       })
       .catch((e) => {
-        if (alive) setError(errText(e))
+        if (!alive) return
+        setError(errText(e))
+        setUnreachable(isUnreachable(e))
       })
       .finally(() => {
         if (alive) setLoading(false)
@@ -44,5 +48,5 @@ export function useDashboard(refreshKey: number): DashboardData {
     }
   }, [refreshKey])
 
-  return { incidents, docs, loading, error }
+  return { incidents, docs, loading, error, unreachable }
 }

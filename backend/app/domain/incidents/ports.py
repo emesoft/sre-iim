@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
-from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident
+from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident, LogEvent
 from app.domain.shared import Clock, UnitOfWork  # re-exported for existing imports
 
 if TYPE_CHECKING:
@@ -21,6 +21,8 @@ __all__ = [
     "Analyzer",
     "IncidentRepository",
     "AnalysisCacheRepository",
+    "LogFetcher",
+    "TicketClient",
     "Clock",
     "UnitOfWork",
     "ProgressReporter",
@@ -64,11 +66,33 @@ class IncidentRepository(Protocol):
         offset: int = 0,
     ) -> list[tuple[Incident, Analysis | None]]: ...
 
+    async def list_by_date_range(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[Incident, Analysis | None]]:
+        """Incidents created in `[start, end)`, newest first — backs the daily report."""
+        ...
+
     async def add_analysis(self, analysis: Analysis) -> Analysis: ...
 
     async def latest_analysis(self, incident_id: uuid.UUID) -> Analysis | None: ...
 
     async def set_status(self, incident_id: uuid.UUID, status: str) -> None: ...
+
+    async def update_context(
+        self,
+        incident_id: uuid.UUID,
+        *,
+        context: dict,
+        fingerprint: str,
+        log_group: str | None = None,
+    ) -> None:
+        """Replace an incident's context/fingerprint (e.g. after merging fetched log lines) so a
+        follow-up analysis re-runs against the new content instead of hitting the stale cache."""
+        ...
+
+    async def set_ticket_url(self, incident_id: uuid.UUID, ticket_url: str) -> None:
+        """Record a created tracking ticket and move the incident to status 'ticketed'."""
+        ...
 
 
 class AnalysisCacheRepository(Protocol):
@@ -77,6 +101,26 @@ class AnalysisCacheRepository(Protocol):
     async def get_valid(self, fingerprint: str, now: datetime) -> Analysis | None: ...
 
     async def put(self, fingerprint: str, analysis_id: uuid.UUID, expires_at: datetime) -> None: ...
+
+
+class LogFetcher(Protocol):
+    """Fetches recent log lines for a log group (e.g. CloudWatch Logs Insights). Used by the
+    on-demand log-search action on an incident — not part of the ingest/analyze flow."""
+
+    async def fetch_logs(
+        self,
+        log_group: str,
+        start: datetime,
+        end: datetime,
+        filter_pattern: str | None = None,
+    ) -> list[LogEvent]: ...
+
+
+class TicketClient(Protocol):
+    """Creates a tracking ticket for an incident in an external tracker (e.g. Azure DevOps).
+    Returns the created ticket's URL."""
+
+    async def create_ticket(self, title: str, description: str) -> str: ...
 
 
 class ProgressReporter(Protocol):

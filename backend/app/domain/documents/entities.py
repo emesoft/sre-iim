@@ -6,8 +6,10 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# The four indexed knowledge sources (SPEC 7.1 / docs/product/rag.md).
-SOURCE_TYPES = ("runbook", "postmortem", "architecture", "vendor")
+# The indexed knowledge sources (SPEC 7.1 / docs/product/rag.md). "incident" is a resolved
+# incident write-up (summary + root cause + fix), saved so future similar incidents surface it as
+# a known-issue match via the same retrieval path — not a separate mechanism.
+SOURCE_TYPES = ("runbook", "postmortem", "architecture", "vendor", "incident")
 
 
 @dataclass
@@ -15,9 +17,10 @@ class Document:
     """One knowledge document (its chunks + embeddings live in doc_chunks)."""
 
     title: str
-    source_type: str  # runbook | postmortem | architecture | vendor
+    source_type: str  # runbook | postmortem | architecture | vendor | incident
     service: str | None = None
     tags: list[str] = field(default_factory=list)
+    incident_id: uuid.UUID | None = None  # set when source_type == "incident"
     id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -43,6 +46,7 @@ class RetrievedChunk:
     title: str
     content: str
     similarity: float
+    incident_id: uuid.UUID | None = None  # set when source_type == "incident"
 
 
 @dataclass(frozen=True)

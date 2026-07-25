@@ -51,6 +51,13 @@ class FakeIncidentRepo:
     async def set_status(self, incident_id, status):
         self.incidents[incident_id].status = status
 
+    async def update_context(self, incident_id, *, context, fingerprint, log_group=None):
+        incident = self.incidents[incident_id]
+        incident.context = context
+        incident.fingerprint = fingerprint
+        if log_group is not None:
+            incident.log_group = log_group
+
 
 class FakeCacheRepo:
     def __init__(self, analyses: dict):
@@ -201,3 +208,21 @@ async def test_new_deploy_version_is_a_fresh_miss():
     )
     assert analyzer.calls == 2
     assert analysis.cache_state == "MISS"
+
+
+async def test_reanalyze_with_context_updates_fingerprint_and_reruns_analyzer():
+    usecase, repo, _, analyzer, _, _uow = _make()
+    incident = await usecase.create_incident(source="manual", context=dict(_CTX))
+    await usecase.analyze_incident(incident)
+    assert analyzer.calls == 1
+
+    new_context = {**_CTX, "sample_logs": [{"message": "different real log line from CloudWatch"}]}
+    analysis = await usecase.reanalyze_with_context(
+        incident, context=new_context, log_group="/ecs/prod-storefront-logs"
+    )
+
+    assert analyzer.calls == 2  # different context -> different fingerprint -> fresh MISS
+    assert analysis.cache_state == "MISS"
+    assert incident.context == new_context
+    assert incident.log_group == "/ecs/prod-storefront-logs"
+    assert repo.incidents[incident.id].log_group == "/ecs/prod-storefront-logs"

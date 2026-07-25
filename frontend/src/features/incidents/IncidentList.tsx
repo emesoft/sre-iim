@@ -12,6 +12,7 @@ export function IncidentList({
   rows,
   loading,
   error,
+  unreachable,
   query,
   selectedId,
   onSelect,
@@ -20,6 +21,7 @@ export function IncidentList({
   rows: IncidentSummary[]
   loading: boolean
   error: string | null
+  unreachable: boolean
   query: string
   selectedId: string | null
   onSelect: (id: string) => void
@@ -35,7 +37,7 @@ export function IncidentList({
   if (error) {
     return (
       <div className="p-3">
-        <ErrorState detail={error} onRetry={onRetry} />
+        <ErrorState detail={error} unreachable={unreachable} onRetry={onRetry} />
       </div>
     )
   }

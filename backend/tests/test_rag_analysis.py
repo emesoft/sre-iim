@@ -32,15 +32,22 @@ _CTX = {
 }
 
 
-def _chunk(title="GCM OOM Runbook", content="Roll back and raise memory.") -> RetrievedChunk:
+def _chunk(
+    title="GCM OOM Runbook",
+    content="Roll back and raise memory.",
+    source_type="runbook",
+    similarity=0.9,
+    incident_id=None,
+) -> RetrievedChunk:
     return RetrievedChunk(
         id=uuid.uuid4(),
         document_id=uuid.uuid4(),
-        source_type="runbook",
+        source_type=source_type,
         service="GCM",
         title=title,
         content=content,
-        similarity=0.9,
+        similarity=similarity,
+        incident_id=incident_id,
     )
 
 
@@ -115,6 +122,39 @@ async def test_rag_analyzer_retrieves_and_grounds():
     assert draft.evidence_chunk_ids == (chunk.id,)  # reported on the draft
 
 
+@pytest.mark.asyncio
+async def test_rag_analyzer_flags_known_issue_above_threshold():
+    known_id = uuid.uuid4()
+    chunk = _chunk(source_type="incident", similarity=0.92, incident_id=known_id)
+    rag = RagAnalyzer(base=_CapturingBase(), embedder=_Embedder(), retriever=_Retriever(chunk))
+
+    draft = await rag.analyze(dict(_CTX))
+
+    assert draft.known_issue_incident_id == known_id
+    assert draft.known_issue_similarity == 0.92
+
+
+@pytest.mark.asyncio
+async def test_rag_analyzer_ignores_incident_chunk_below_threshold():
+    chunk = _chunk(source_type="incident", similarity=0.5, incident_id=uuid.uuid4())
+    rag = RagAnalyzer(base=_CapturingBase(), embedder=_Embedder(), retriever=_Retriever(chunk))
+
+    draft = await rag.analyze(dict(_CTX))
+
+    assert draft.known_issue_incident_id is None
+    assert draft.known_issue_similarity is None
+
+
+@pytest.mark.asyncio
+async def test_rag_analyzer_ignores_non_incident_chunks_for_known_issue():
+    chunk = _chunk(source_type="runbook", similarity=0.99)  # high similarity, wrong source_type
+    rag = RagAnalyzer(base=_CapturingBase(), embedder=_Embedder(), retriever=_Retriever(chunk))
+
+    draft = await rag.analyze(dict(_CTX))
+
+    assert draft.known_issue_incident_id is None
+
+
 class _FakeReporter:
     def __init__(self):
         self.calls: list[tuple[str, str | None]] = []
@@ -177,7 +217,7 @@ async def test_analysis_cites_ingested_document():
 
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with maker() as s:
-        for tbl in (AnalysisCacheRow, AnalysisRow, IncidentRow, DocChunkRow, DocumentRow):
+        for tbl in (AnalysisCacheRow, AnalysisRow, DocChunkRow, DocumentRow, IncidentRow):
             await s.execute(delete(tbl))
         await s.commit()
 

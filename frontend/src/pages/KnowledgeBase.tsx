@@ -19,6 +19,7 @@ export function KnowledgeBase({
           rows={data.docs}
           loading={data.loading}
           error={data.error}
+          unreachable={data.unreachable}
           query={query}
           onRetry={onRetry}
           onNew={onNew}

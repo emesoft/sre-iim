@@ -7,7 +7,7 @@ a disposable DB without calling Bedrock.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -16,10 +16,12 @@ from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.documents.ingest import IngestDocument
+from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
+from app.application.incidents.resolve import ResolveIncident
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
-from app.domain.incidents.ports import Analyzer, IncidentRepository
+from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher, TicketClient
 from app.domain.llm import ChatModel
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import Settings, get_settings
@@ -38,6 +40,8 @@ from app.infrastructure.llm.chat import BedrockChatModel, DeepSeekChatModel
 from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
+from app.infrastructure.logs.factory import build_log_fetcher
+from app.infrastructure.tickets.ado_client import AdoTicketClient
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
@@ -125,6 +129,50 @@ def get_ingest_incident(
         uow=SqlAlchemyUnitOfWork(session),
         cache_ttl_seconds=settings.cache_ttl_seconds,
     )
+
+
+def get_log_fetcher_factory() -> Callable[[str], LogFetcher]:
+    """Resolves a `LogFetcher` for a given incident's `service` (project -> cloud/account),
+    per `PROJECT_<SERVICE>_*` env config (`infrastructure/config.py`). Tests override this to
+    avoid a real AWS call."""
+    settings = get_settings()
+    return lambda service: build_log_fetcher(service, settings)
+
+
+def get_daily_report(
+    session: AsyncSession = Depends(get_session),
+) -> DailyReport:
+    """GET /api/reports/daily flow: reuses the graph nodes' generic ChatModel for the digest
+    narration, selected the same way as the graph analyzer (decision 0016)."""
+    settings = get_settings()
+    return DailyReport(
+        incidents=SqlAlchemyIncidentRepository(session),
+        chat=select_chat_model(settings),
+    )
+
+
+def get_resolve_incident(
+    session: AsyncSession = Depends(get_session),
+    embedder: Embedder = Depends(get_embedder),
+) -> ResolveIncident:
+    """POST /api/incidents/{id}/resolve flow: mark resolved + save the case for known-issue
+    matching, reusing the same embedder as document ingestion."""
+    return ResolveIncident(
+        incidents=SqlAlchemyIncidentRepository(session),
+        documents=SqlAlchemyDocumentRepository(session),
+        embedder=embedder,
+        uow=SqlAlchemyUnitOfWork(session),
+    )
+
+
+def get_unit_of_work(session: AsyncSession = Depends(get_session)) -> SqlAlchemyUnitOfWork:
+    return SqlAlchemyUnitOfWork(session)
+
+
+def get_ticket_client() -> TicketClient:
+    """Azure DevOps ticket client for the incident ticketing action. Tests override this to avoid
+    a real ADO call."""
+    return AdoTicketClient(get_settings())
 
 
 def get_document_repository(

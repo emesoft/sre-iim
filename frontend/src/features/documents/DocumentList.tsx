@@ -11,6 +11,7 @@ export function DocumentList({
   rows,
   loading,
   error,
+  unreachable,
   query,
   onRetry,
   onNew,
@@ -18,6 +19,7 @@ export function DocumentList({
   rows: DocumentSummary[]
   loading: boolean
   error: string | null
+  unreachable: boolean
   query: string
   onRetry: () => void
   onNew: () => void
@@ -29,7 +31,7 @@ export function DocumentList({
       )
     : rows
 
-  if (error) return <ErrorState detail={error} onRetry={onRetry} />
+  if (error) return <ErrorState detail={error} unreachable={unreachable} onRetry={onRetry} />
   if (loading) {
     return (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">

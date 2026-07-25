@@ -7,14 +7,23 @@ from app.interface.http.dto.response.incident import (
     IncidentCreatedResponse,
     IncidentDetail,
     IncidentSummary,
+    KnownIssueOut,
+    LogEventOut,
+    LogSearchResult,
 )
+from app.interface.http.dto.response.report import DailyReportOut, ReportIncidentOut
 
 __all__ = [
     "IncidentCreatedResponse",
     "AnalysisOut",
     "IncidentSummary",
     "IncidentDetail",
+    "KnownIssueOut",
+    "LogEventOut",
+    "LogSearchResult",
     "DocumentCreatedResponse",
     "DocumentSummary",
     "HealthResponse",
+    "DailyReportOut",
+    "ReportIncidentOut",
 ]

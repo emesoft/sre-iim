@@ -7,6 +7,11 @@ export interface EvidenceRef {
   title: string
 }
 
+export interface KnownIssueOut {
+  incident_id: string
+  similarity: number
+}
+
 export interface AnalysisOut {
   severity: string
   summary: string
@@ -16,6 +21,7 @@ export interface AnalysisOut {
   model_id: string
   _cache: 'HIT' | 'MISS'
   evidence: EvidenceRef[]
+  known_issue: KnownIssueOut | null
 }
 
 export interface IncidentSummary {
@@ -38,7 +44,20 @@ export interface IncidentDetail {
   context: Record<string, unknown>
   created_at: string
   updated_at: string
+  log_group: string | null
+  ticket_url: string | null
   analysis: AnalysisOut | null
+}
+
+export interface LogEventOut {
+  timestamp: string
+  message: string
+}
+
+export interface LogSearchResult {
+  log_group: string
+  log_events: LogEventOut[]
+  analysis: AnalysisOut
 }
 
 export interface IncidentCreated {
@@ -83,3 +102,20 @@ export interface Health {
 
 export type SourceType = 'runbook' | 'postmortem' | 'architecture' | 'vendor'
 export const SOURCE_TYPES: SourceType[] = ['runbook', 'postmortem', 'architecture', 'vendor']
+
+export interface ReportIncidentOut {
+  id: string
+  service: string
+  status: string
+  severity: string | null
+  summary: string | null
+  ticket_url: string | null
+}
+
+export interface DailyReportOut {
+  report_date: string
+  counts_by_severity: Record<string, number>
+  counts_by_status: Record<string, number>
+  incidents: ReportIncidentOut[]
+  slack_markdown: string
+}

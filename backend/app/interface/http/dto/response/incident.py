@@ -16,6 +16,13 @@ class IncidentCreatedResponse(BaseModel):
     stream: str
 
 
+class KnownIssueOut(BaseModel):
+    """A past resolved incident this analysis matched, above the known-issue similarity threshold."""
+
+    incident_id: uuid.UUID
+    similarity: float
+
+
 class AnalysisOut(BaseModel):
     """The persisted 5-field analysis plus cache state and evidence refs."""
 
@@ -27,6 +34,7 @@ class AnalysisOut(BaseModel):
     model_id: str
     cache_state: str = Field(serialization_alias="_cache")  # HIT | MISS
     evidence: list[dict] = Field(default_factory=list)
+    known_issue: KnownIssueOut | None = None
 
 
 class IncidentSummary(BaseModel):
@@ -53,4 +61,21 @@ class IncidentDetail(BaseModel):
     context: dict
     created_at: datetime
     updated_at: datetime
+    log_group: str | None = None
+    ticket_url: str | None = None
     analysis: AnalysisOut | None = None
+
+
+class LogEventOut(BaseModel):
+    """One log line returned by a log search."""
+
+    timestamp: datetime
+    message: str
+
+
+class LogSearchResult(BaseModel):
+    """`POST /api/incidents/{id}/logs/search` response: fetched log lines + the re-run analysis."""
+
+    log_group: str
+    log_events: list[LogEventOut]
+    analysis: AnalysisOut

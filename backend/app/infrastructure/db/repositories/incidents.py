@@ -24,6 +24,8 @@ class SqlAlchemyIncidentRepository:
             fingerprint=incident.fingerprint,
             context=incident.context,
             status=incident.status,
+            log_group=incident.log_group,
+            ticket_url=incident.ticket_url,
         )
         self._s.add(row)
         await self._s.flush()
@@ -62,6 +64,21 @@ class SqlAlchemyIncidentRepository:
             for inc, an in rows
         ]
 
+    async def list_by_date_range(
+        self, start: datetime, end: datetime
+    ) -> list[tuple[Incident, Analysis | None]]:
+        stmt = (
+            select(IncidentRow, AnalysisRow)
+            .join(AnalysisRow, AnalysisRow.incident_id == IncidentRow.id, isouter=True)
+            .where(IncidentRow.created_at >= start, IncidentRow.created_at < end)
+            .order_by(IncidentRow.created_at.desc())
+        )
+        rows = (await self._s.execute(stmt)).all()
+        return [
+            (incident_to_domain(inc), analysis_to_domain(an) if an is not None else None)
+            for inc, an in rows
+        ]
+
     async def add_analysis(self, analysis: Analysis) -> Analysis:
         row = AnalysisRow(
             incident_id=analysis.incident_id,
@@ -73,6 +90,8 @@ class SqlAlchemyIncidentRepository:
             cache_state=analysis.cache_state,
             model_id=analysis.model_id,
             evidence_chunk_ids=list(analysis.evidence_chunk_ids),
+            known_issue_incident_id=analysis.known_issue_incident_id,
+            known_issue_similarity=analysis.known_issue_similarity,
         )
         self._s.add(row)
         await self._s.flush()
@@ -92,6 +111,27 @@ class SqlAlchemyIncidentRepository:
         row = await self._s.get(IncidentRow, incident_id)
         if row is not None:
             row.status = status
+
+    async def set_ticket_url(self, incident_id: uuid.UUID, ticket_url: str) -> None:
+        row = await self._s.get(IncidentRow, incident_id)
+        if row is not None:
+            row.ticket_url = ticket_url
+            row.status = "ticketed"
+
+    async def update_context(
+        self,
+        incident_id: uuid.UUID,
+        *,
+        context: dict,
+        fingerprint: str,
+        log_group: str | None = None,
+    ) -> None:
+        row = await self._s.get(IncidentRow, incident_id)
+        if row is not None:
+            row.context = context
+            row.fingerprint = fingerprint
+            if log_group is not None:
+                row.log_group = log_group
 
 
 class SqlAlchemyAnalysisCacheRepository:

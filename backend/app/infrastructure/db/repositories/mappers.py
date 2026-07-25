@@ -16,6 +16,8 @@ def incident_to_domain(row: IncidentRow) -> Incident:
         fingerprint=row.fingerprint,
         context=row.context,
         status=row.status,
+        log_group=row.log_group,
+        ticket_url=row.ticket_url,
         id=row.id,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -33,6 +35,10 @@ def analysis_to_domain(row: AnalysisRow) -> Analysis:
         cache_state=row.cache_state,
         model_id=row.model_id,
         evidence_chunk_ids=list(row.evidence_chunk_ids or []),
+        known_issue_incident_id=row.known_issue_incident_id,
+        known_issue_similarity=(
+            float(row.known_issue_similarity) if row.known_issue_similarity is not None else None
+        ),
         id=row.id,
         created_at=row.created_at,
     )
@@ -44,6 +50,7 @@ def document_to_domain(row: DocumentRow) -> Document:
         source_type=row.source_type,
         service=row.service,
         tags=list(row.tags or []),
+        incident_id=row.incident_id,
         id=row.id,
         created_at=row.created_at,
         updated_at=row.updated_at,

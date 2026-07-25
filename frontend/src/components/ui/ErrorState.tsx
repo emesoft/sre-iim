@@ -1,17 +1,20 @@
-import { PlugZap, RefreshCw } from 'lucide-react'
+import { AlertOctagon, PlugZap, RefreshCw } from 'lucide-react'
 import { Button } from './Button'
 
 /**
- * The designed failure state. Explains what went wrong and exactly how to fix
- * it (start the backend), shows the raw detail, and offers a retry — errors
- * give direction, they don't just apologize.
+ * The designed failure state — two variants sharing one layout. `unreachable` (the common case:
+ * the backend process itself is down) tells the user exactly how to fix it. Otherwise the backend
+ * did respond, just with an error (e.g. a downstream AI-provider failure) — a different problem,
+ * so this doesn't mislead the user into restarting a backend that's already running fine.
  */
 export function ErrorState({
   detail,
+  unreachable = true,
   onRetry,
   className = '',
 }: {
   detail: string
+  unreachable?: boolean
   onRetry?: () => void
   className?: string
 }) {
@@ -26,13 +29,21 @@ export function ErrorState({
           color: 'var(--sev-critical)',
         }}
       >
-        <PlugZap size={26} />
+        {unreachable ? <PlugZap size={26} /> : <AlertOctagon size={26} />}
       </span>
-      <h3 className="font-display text-base font-bold text-ink">Can’t reach the backend</h3>
+      <h3 className="font-display text-base font-bold text-ink">
+        {unreachable ? 'Can’t reach the backend' : 'Request failed'}
+      </h3>
       <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink-2">
-        The API on <span className="font-mono text-ink">:8000</span> didn’t respond. Start it with{' '}
-        <span className="font-mono text-ink">docker compose -f infra/docker-compose.yml up</span>, then
-        retry.
+        {unreachable ? (
+          <>
+            The API on <span className="font-mono text-ink">:8000</span> didn’t respond. Start it
+            with <span className="font-mono text-ink">docker compose up</span> from the repo root,
+            then retry.
+          </>
+        ) : (
+          'The backend responded with an error — see the detail below.'
+        )}
       </p>
       <code className="mt-4 max-w-md truncate rounded-lg bg-surface-2 px-3 py-1.5 font-mono text-xs text-ink-2">
         {detail}

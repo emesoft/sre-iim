@@ -9,30 +9,42 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
 from app.application.incidents.ingest import IngestIncident
+from app.application.incidents.resolve import NoAnalysisToResolveError, ResolveIncident
 from app.domain.documents.ports import DocumentRepository
 from app.domain.incidents.entities import Incident
-from app.domain.incidents.ports import IncidentRepository
+from app.domain.incidents.ports import IncidentRepository, LogFetcher, TicketClient
+from app.domain.shared import UnitOfWork
 from app.infrastructure.events import BusProgressReporter, IncidentEventBus
 from app.interface.http.deps import (
     get_document_repository,
     get_event_bus,
     get_incident_repository,
     get_ingest_incident,
+    get_log_fetcher_factory,
+    get_resolve_incident,
+    get_ticket_client,
+    get_unit_of_work,
     resolve_background_incident_deps,
 )
 from app.interface.http.dto import mappers
-from app.interface.http.dto.request import IncidentIngestRequest
+from app.interface.http.dto.request import (
+    IncidentIngestRequest,
+    LogSearchRequest,
+    ResolveIncidentRequest,
+)
 from app.interface.http.dto.response import (
     IncidentCreatedResponse,
     IncidentDetail,
     IncidentSummary,
+    LogEventOut,
+    LogSearchResult,
 )
 
 if TYPE_CHECKING:
@@ -140,6 +152,40 @@ async def stream_incident(
     return StreamingResponse(_events(), media_type="text/event-stream")
 
 
+@router.post("/{incident_id}/logs/search", response_model=LogSearchResult)
+async def search_incident_logs(
+    incident_id: uuid.UUID,
+    body: LogSearchRequest,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    documents: DocumentRepository = Depends(get_document_repository),
+    ingest: IngestIncident = Depends(get_ingest_incident),
+    log_fetcher_factory: Callable[[str], LogFetcher] = Depends(get_log_fetcher_factory),
+) -> LogSearchResult:
+    """Fetch real log lines for `log_group` via the incident's project cloud (CloudWatch today),
+    merge them into the incident's context as `sample_logs`, and re-run analysis grounded in the
+    real logs."""
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+
+    log_fetcher = log_fetcher_factory(incident.service)
+    events = await log_fetcher.fetch_logs(
+        body.log_group, body.start, body.end, body.filter_pattern
+    )
+    sample_logs = [{"timestamp": e.timestamp.isoformat(), "message": e.message} for e in events]
+    context = {**incident.context, "sample_logs": sample_logs}
+
+    analysis = await ingest.reanalyze_with_context(
+        incident, context=context, log_group=body.log_group
+    )
+    evidence = await documents.evidence_refs(list(analysis.evidence_chunk_ids))
+    return LogSearchResult(
+        log_group=body.log_group,
+        log_events=[LogEventOut(timestamp=e.timestamp, message=e.message) for e in events],
+        analysis=mappers.analysis_out(analysis, evidence),
+    )
+
+
 @router.get("", response_model=list[IncidentSummary])
 async def list_incidents(
     repo: IncidentRepository = Depends(get_incident_repository),
@@ -174,4 +220,64 @@ async def get_incident(
     evidence = (
         await documents.evidence_refs(analysis.evidence_chunk_ids) if analysis else []
     )
+    return mappers.incident_detail(incident, analysis, evidence)
+
+
+@router.post("/{incident_id}/resolve", response_model=IncidentDetail)
+async def resolve_incident(
+    incident_id: uuid.UUID,
+    body: ResolveIncidentRequest,
+    resolve: ResolveIncident = Depends(get_resolve_incident),
+    repo: IncidentRepository = Depends(get_incident_repository),
+    documents: DocumentRepository = Depends(get_document_repository),
+) -> IncidentDetail:
+    """Mark an incident resolved and save it as a known-issue case (source_type="incident") so a
+    future similar incident surfaces it via the existing RAG retrieval path."""
+    try:
+        incident = await resolve.resolve(incident_id, resolution_notes=body.resolution_notes)
+    except NoAnalysisToResolveError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    analysis = await repo.latest_analysis(incident_id)
+    evidence = (
+        await documents.evidence_refs(analysis.evidence_chunk_ids) if analysis else []
+    )
+    return mappers.incident_detail(incident, analysis, evidence)
+
+
+@router.post("/{incident_id}/ticket", response_model=IncidentDetail)
+async def create_incident_ticket(
+    incident_id: uuid.UUID,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    documents: DocumentRepository = Depends(get_document_repository),
+    ticket_client: TicketClient = Depends(get_ticket_client),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+) -> IncidentDetail:
+    """Create an Azure DevOps work item for a genuinely new/unseen error and record its URL,
+    moving the incident to status "ticketed"."""
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    analysis = await repo.latest_analysis(incident_id)
+    if analysis is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="incident has no analysis to file a ticket from",
+        )
+
+    title = f"[{analysis.severity.upper()}] {incident.service}: {analysis.summary}"
+    description = (
+        f"Root cause: {analysis.root_cause}\n\n"
+        f"Recommended action: {analysis.recommended_action}\n\n"
+        f"IIM incident: {incident_id}"
+    )
+    ticket_url = await ticket_client.create_ticket(title, description)
+    await repo.set_ticket_url(incident_id, ticket_url)
+    await uow.commit()
+    incident.ticket_url = ticket_url
+    incident.status = "ticketed"
+
+    evidence = await documents.evidence_refs(analysis.evidence_chunk_ids)
     return mappers.incident_detail(incident, analysis, evidence)
