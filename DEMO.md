@@ -45,7 +45,14 @@ Chờ tới khi log backend hiện `Application startup complete`, rồi mở **
 Kiểm tra nhanh trước khi lên demo:
 
 ```bash
-curl localhost:8000/healthz     # phải trả về status ok và db ok
+curl localhost:8000/healthz     # {"status":"ok","app":"IIM","database":"up"}
+```
+
+Muốn chạy test suite trong lúc stack đang lên, **phải truyền đúng số chiều embedding**, nếu không 5
+test sẽ fail vì DB đã được migrate sang 768 chiều theo `.env` demo:
+
+```bash
+cd backend && EMBEDDING_DIM=768 uv run pytest     # 102 passed
 ```
 
 Nếu góc trên bên phải UI hiện pill health màu xanh là stack đã thông.
