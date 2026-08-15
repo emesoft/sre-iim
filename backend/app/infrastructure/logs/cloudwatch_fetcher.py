@@ -15,6 +15,7 @@ boto3 SSO profiles: https://boto3.amazonaws.com/v1/documentation/api/latest/guid
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from datetime import UTC, datetime
 
@@ -94,8 +95,25 @@ class CloudWatchLogFetcher:
             message = fields.get("@message", "")
             raw_ts = fields.get("@timestamp")
             timestamp = _parse_insights_timestamp(raw_ts) if raw_ts else start
-            events.append(LogEvent(timestamp=timestamp, message=message))
+            events.append(
+                LogEvent(timestamp=timestamp, message=message, level=_parse_level(message))
+            )
         return events
+
+
+_LEVEL_RE = re.compile(r"\b(FATAL|CRITICAL|ERROR|WARNING|WARN|INFO|DEBUG)\b")
+
+
+def _parse_level(message: str) -> str | None:
+    """Best-effort severity for a raw log line. Insights returns `@message` as free text, so the
+    level (when the app logs one) has to be read back out of it — the analysis prompt renders it
+    per line. Scans only the head of the line so a level word quoted inside a stack trace or a URL
+    further along does not win over the real one."""
+    match = _LEVEL_RE.search(message[:120])
+    if match is None:
+        return None
+    level = match.group(1)
+    return "WARN" if level == "WARNING" else level
 
 
 def _parse_insights_timestamp(raw: str) -> datetime:

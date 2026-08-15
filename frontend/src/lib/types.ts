@@ -52,6 +52,8 @@ export interface IncidentDetail {
 export interface LogEventOut {
   timestamp: string
   message: string
+  /** Severity parsed from the line; null when the source line carried none. */
+  level: string | null
 }
 
 export interface LogSearchResult {

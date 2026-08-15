@@ -172,7 +172,12 @@ async def search_incident_logs(
     events = await log_fetcher.fetch_logs(
         body.log_group, body.start, body.end, body.filter_pattern
     )
-    sample_logs = [{"timestamp": e.timestamp.isoformat(), "message": e.message} for e in events]
+    # Keys match what the analysis prompt renders per line (`ts`, `level`, `message`, see
+    # domain/incidents/prompts.py) and what the hand-pasted samples already use — otherwise every
+    # fetched line reaches the model as "None None <message>".
+    sample_logs = [
+        {"ts": e.timestamp.isoformat(), "level": e.level, "message": e.message} for e in events
+    ]
     context = {**incident.context, "sample_logs": sample_logs}
 
     analysis = await ingest.reanalyze_with_context(
@@ -181,7 +186,9 @@ async def search_incident_logs(
     evidence = await documents.evidence_refs(list(analysis.evidence_chunk_ids))
     return LogSearchResult(
         log_group=body.log_group,
-        log_events=[LogEventOut(timestamp=e.timestamp, message=e.message) for e in events],
+        log_events=[
+            LogEventOut(timestamp=e.timestamp, message=e.message, level=e.level) for e in events
+        ],
         analysis=mappers.analysis_out(analysis, evidence),
     )
 

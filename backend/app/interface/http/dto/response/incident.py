@@ -71,6 +71,7 @@ class LogEventOut(BaseModel):
 
     timestamp: datetime
     message: str
+    level: str | None = None
 
 
 class LogSearchResult(BaseModel):

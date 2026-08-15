@@ -409,7 +409,16 @@ function LogSearchPanel({
           ...incident,
           log_group: r.log_group,
           analysis: r.analysis,
-          context: { ...incident.context, sample_logs: r.log_events },
+          // Same keys the backend persists into context (ts/level/message), not the wire DTO's —
+          // otherwise the optimistic copy disagrees with what a refetch returns.
+          context: {
+            ...incident.context,
+            sample_logs: r.log_events.map((e) => ({
+              ts: e.timestamp,
+              level: e.level,
+              message: e.message,
+            })),
+          },
         })
       })
       .catch((e) => setErr(errText(e)))
@@ -468,7 +477,9 @@ function LogSearchPanel({
           <pre className="max-h-64 overflow-auto rounded-xl bg-surface-2 p-3 font-mono text-xs leading-relaxed text-ink-2">
             {result.log_events.length === 0
               ? 'No matching log lines in this window.'
-              : result.log_events.map((e) => `${e.timestamp}  ${e.message}`).join('\n')}
+              : result.log_events
+                  .map((e) => `${e.timestamp}  ${(e.level ?? '-').padEnd(5)}  ${e.message}`)
+                  .join('\n')}
           </pre>
         </div>
       )}

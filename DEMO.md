@@ -132,9 +132,20 @@ Tên log group quyết định kịch bản log giả lập:
 
 | Log group chứa | Kịch bản |
 |---|---|
-| `oom`, `mem`, `worker` | OOMKilled, heap exhausted, task bị dừng |
-| `alb`, `5xx`, `api`, `gateway` | 502/504, health check fail, connection pool cạn |
-| còn lại | lỗi ứng dụng chung (traceback, DB timeout) |
+| `oom`, `mem` | OOMKilled exit 137, heap cạn, GC pause, task bị dừng |
+| `alb`, `5xx`, `gateway`, `http` | 502/504, health check fail, connection pool cạn |
+| `db`, `postgres`, `sql`, `rds` | pool bão hoà, deadlock, slow query, replica lag |
+| `disk`, `volume`, `storage` | No space left on device, WAL panic, logrotate fail |
+| `cert`, `tls`, `ssl` | certificate expired, handshake failure |
+| `queue`, `kafka`, `sqs`, `backlog` | consumer lag, rebalance liên tục, DLQ phình |
+| `quota`, `ratelimit`, `vendor`, `cost` | 429 từ vendor, vượt budget ngày, cache hit rate sập |
+| còn lại | lỗi ứng dụng chung (traceback, DB timeout, worker chết) |
+
+Ví dụ dùng được ngay: `/ecs/payment-service-worker-oom`, `/ecs/gcm-postgres-db`,
+`/ecs/gcm-kafka-queue`, `/ecs/gcm-vendor-quota`, `/aws/alb/gcm-public-5xx`.
+
+Mỗi dòng log có dạng `component  key=value ...` rồi tới nội dung, kèm level riêng — nên phân tích
+trích được số cụ thể (`pool=100/100 waiting=64`, `exit_code=137`, `lag=184320`) thay vì chỉ mô tả chung.
 
 ### Bước 5 — Resolve và known-issue matching (2 phút)
 

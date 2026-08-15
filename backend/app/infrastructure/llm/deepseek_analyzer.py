@@ -38,7 +38,7 @@ class DeepSeekAnalyzer:
                 {"role": "user", "content": build_user_message(context, evidence)},
             ],
             "temperature": 0.2,
-            "max_tokens": 600,
+            "max_tokens": self._settings.llm_max_tokens,
             "stream": False,
         }
         headers = {"Authorization": f"Bearer {self._settings.deepseek_api_key}"}
