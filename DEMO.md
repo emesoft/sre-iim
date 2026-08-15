@@ -177,7 +177,9 @@ Bấm **Copy for Slack**.
 | Triệu chứng | Nguyên nhân thường gặp | Xử lý |
 |---|---|---|
 | UI hiện "can't reach the backend" | backend chưa lên xong | chờ hết migration, `docker compose logs backend` |
-| Phân tích lỗi 429 / rate limit | OpenRouter free tier siết | đổi `DEEPSEEK_MODEL` sang model `:free` khác, restart backend |
+| Phân tích lỗi 429 / rate limit | OpenRouter free tier siết | thử lại, hoặc đổi `DEEPSEEK_MODEL` sang model `:free` khác rồi restart backend |
+| Incident ra `status: failed`, không rõ lý do | backend **không ghi log** lý do — chỉ đẩy qua SSE | gắn vào stream để thấy: `curl -N localhost:8000/api/incidents/{id}/stream` |
+| Model trả 404 "unavailable for free" | model đó đã bị OpenRouter chuyển sang trả phí | liệt kê model free hiện tại (xem mục 6), đổi `DEEPSEEK_MODEL` |
 | Phân tích lỗi 401 | key sai hoặc chưa được truyền vào container | `docker compose config` xem `DEEPSEEK_API_KEY` đã resolve chưa |
 | Evidence rỗng | chưa nạp knowledge doc, hoặc `JINA_API_KEY` sai | làm lại bước 2 |
 | Search logs lỗi NotImplementedError | `DEMO_LOGS` chưa `true` trong container | sửa `.env` rồi `docker compose up -d --force-recreate backend` |
@@ -208,6 +210,17 @@ Chủ động nêu, đừng để bị hỏi vặn:
 
 Adapter `deepseek` thực chất là client OpenAI-compatible, base URL cấu hình được — nên đổi provider chỉ
 là đổi env, không sửa code:
+
+Danh sách model free của OpenRouter đổi theo thời gian. Model đã bị rút khỏi free trả về **404
+`This model is unavailable for free`** — không phải lỗi auth, nên key vẫn tốt. Liệt kê model free
+đang sống:
+
+```bash
+curl -s https://openrouter.ai/api/v1/models | jq -r '.data[].id | select(endswith(":free"))'
+```
+
+`openai/gpt-oss-20b:free` là model đã được kiểm chứng chạy đúng với pipeline này (trả JSON sạch ở
+`content`, phần reasoning tách riêng nên không làm hỏng parser).
 
 ```bash
 # Groq
