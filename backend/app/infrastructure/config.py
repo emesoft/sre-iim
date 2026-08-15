@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     # --- Analysis pipeline ---
     analysis_mode: str = "single"  # single (RAG single-call) | graph (multi-agent LangGraph)
 
+    # --- Demo mode ---
+    # Global switch (not per project): serve synthetic log lines instead of querying a cloud, so
+    # the log-search flow works with no AWS account. See `infrastructure/logs/demo_fetcher.py`.
+    demo_logs: bool = False
+
     # --- LLM provider (decision 0016) ---
     llm_provider: str = "bedrock"  # bedrock | deepseek
     max_rounds: int = 2  # critic corrective-retrieval loop cap

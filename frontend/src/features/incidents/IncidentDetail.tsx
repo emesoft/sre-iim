@@ -420,7 +420,9 @@ function LogSearchPanel({
     <Card className="p-5">
       <div className="flex items-center gap-2">
         <Search size={15} className="text-accent" />
-        <h3 className="font-display text-sm font-bold text-ink">Search CloudWatch logs</h3>
+        {/* Provider-neutral: the backend resolves the source (CloudWatch, or the demo source
+            when DEMO_LOGS is on), so the label must not claim one of them. */}
+        <h3 className="font-display text-sm font-bold text-ink">Search logs</h3>
       </div>
       <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-3">
         <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-xs font-medium text-ink-2">
