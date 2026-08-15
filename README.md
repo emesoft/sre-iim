@@ -74,6 +74,9 @@ The app and login screen load without credentials, but **AI analysis needs an LL
 AWS Bedrock creds (`AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_REGION`) or
 `LLM_PROVIDER=deepseek` + `DEEPSEEK_API_KEY` in a `.env` file at the repo root.
 
+To run the whole SRE flow locally on free-tier LLM keys and a synthetic log source (`DEMO_LOGS=true`
+— no AWS account needed), follow **[DEMO.md](DEMO.md)**.
+
 ## CI / DevSecOps
 
 `.github/workflows/ci.yml` runs on every PR and push to `main`:
