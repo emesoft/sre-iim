@@ -29,10 +29,16 @@ class Incident:
 
 @dataclass(frozen=True)
 class LogEvent:
-    """One log line fetched from a `LogFetcher` (e.g. CloudWatch Logs Insights)."""
+    """One log line fetched from a `LogFetcher` (e.g. CloudWatch Logs Insights).
+
+    `level` is the line's severity when it can be determined. The analysis prompt renders
+    `{ts} {level} {message}` per line, so a missing level is what the model reads — hence it is
+    carried here rather than left buried inside `message`.
+    """
 
     timestamp: datetime
     message: str
+    level: str | None = None
 
 
 @dataclass(frozen=True)

@@ -45,7 +45,14 @@ Chờ tới khi log backend hiện `Application startup complete`, rồi mở **
 Kiểm tra nhanh trước khi lên demo:
 
 ```bash
-curl localhost:8000/healthz     # phải trả về status ok và db ok
+curl localhost:8000/healthz     # {"status":"ok","app":"IIM","database":"up"}
+```
+
+Muốn chạy test suite trong lúc stack đang lên, **phải truyền đúng số chiều embedding**, nếu không 5
+test sẽ fail vì DB đã được migrate sang 768 chiều theo `.env` demo:
+
+```bash
+cd backend && EMBEDDING_DIM=768 uv run pytest     # 102 passed
 ```
 
 Nếu góc trên bên phải UI hiện pill health màu xanh là stack đã thông.
@@ -125,9 +132,20 @@ Tên log group quyết định kịch bản log giả lập:
 
 | Log group chứa | Kịch bản |
 |---|---|
-| `oom`, `mem`, `worker` | OOMKilled, heap exhausted, task bị dừng |
-| `alb`, `5xx`, `api`, `gateway` | 502/504, health check fail, connection pool cạn |
-| còn lại | lỗi ứng dụng chung (traceback, DB timeout) |
+| `oom`, `mem` | OOMKilled exit 137, heap cạn, GC pause, task bị dừng |
+| `alb`, `5xx`, `gateway`, `http` | 502/504, health check fail, connection pool cạn |
+| `db`, `postgres`, `sql`, `rds` | pool bão hoà, deadlock, slow query, replica lag |
+| `disk`, `volume`, `storage` | No space left on device, WAL panic, logrotate fail |
+| `cert`, `tls`, `ssl` | certificate expired, handshake failure |
+| `queue`, `kafka`, `sqs`, `backlog` | consumer lag, rebalance liên tục, DLQ phình |
+| `quota`, `ratelimit`, `vendor`, `cost` | 429 từ vendor, vượt budget ngày, cache hit rate sập |
+| còn lại | lỗi ứng dụng chung (traceback, DB timeout, worker chết) |
+
+Ví dụ dùng được ngay: `/ecs/payment-service-worker-oom`, `/ecs/gcm-postgres-db`,
+`/ecs/gcm-kafka-queue`, `/ecs/gcm-vendor-quota`, `/aws/alb/gcm-public-5xx`.
+
+Mỗi dòng log có dạng `component  key=value ...` rồi tới nội dung, kèm level riêng — nên phân tích
+trích được số cụ thể (`pool=100/100 waiting=64`, `exit_code=137`, `lag=184320`) thay vì chỉ mô tả chung.
 
 ### Bước 5 — Resolve và known-issue matching (2 phút)
 
@@ -170,7 +188,9 @@ Bấm **Copy for Slack**.
 | Triệu chứng | Nguyên nhân thường gặp | Xử lý |
 |---|---|---|
 | UI hiện "can't reach the backend" | backend chưa lên xong | chờ hết migration, `docker compose logs backend` |
-| Phân tích lỗi 429 / rate limit | OpenRouter free tier siết | đổi `DEEPSEEK_MODEL` sang model `:free` khác, restart backend |
+| Phân tích lỗi 429 / rate limit | OpenRouter free tier siết | thử lại, hoặc đổi `DEEPSEEK_MODEL` sang model `:free` khác rồi restart backend |
+| Incident ra `status: failed`, không rõ lý do | backend **không ghi log** lý do — chỉ đẩy qua SSE | gắn vào stream để thấy: `curl -N localhost:8000/api/incidents/{id}/stream` |
+| Model trả 404 "unavailable for free" | model đó đã bị OpenRouter chuyển sang trả phí | liệt kê model free hiện tại (xem mục 6), đổi `DEEPSEEK_MODEL` |
 | Phân tích lỗi 401 | key sai hoặc chưa được truyền vào container | `docker compose config` xem `DEEPSEEK_API_KEY` đã resolve chưa |
 | Evidence rỗng | chưa nạp knowledge doc, hoặc `JINA_API_KEY` sai | làm lại bước 2 |
 | Search logs lỗi NotImplementedError | `DEMO_LOGS` chưa `true` trong container | sửa `.env` rồi `docker compose up -d --force-recreate backend` |
@@ -201,6 +221,17 @@ Chủ động nêu, đừng để bị hỏi vặn:
 
 Adapter `deepseek` thực chất là client OpenAI-compatible, base URL cấu hình được — nên đổi provider chỉ
 là đổi env, không sửa code:
+
+Danh sách model free của OpenRouter đổi theo thời gian. Model đã bị rút khỏi free trả về **404
+`This model is unavailable for free`** — không phải lỗi auth, nên key vẫn tốt. Liệt kê model free
+đang sống:
+
+```bash
+curl -s https://openrouter.ai/api/v1/models | jq -r '.data[].id | select(endswith(":free"))'
+```
+
+`openai/gpt-oss-20b:free` là model đã được kiểm chứng chạy đúng với pipeline này (trả JSON sạch ở
+`content`, phần reasoning tách riêng nên không làm hỏng parser).
 
 ```bash
 # Groq

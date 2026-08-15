@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     model_id: str = "anthropic.claude-3-5-haiku-20241022-v1:0"  # main tier (diagnosis, critic)
     fast_model_id: str = "anthropic.claude-3-5-haiku-20241022-v1:0"  # Haiku tier (triage, etc.)
 
+    # Completion budget for the OpenAI-compatible providers. Generous on purpose: reasoning models
+    # (e.g. OpenRouter's gpt-oss) spend this budget on reasoning tokens before emitting any JSON, so
+    # a tight cap truncates the answer mid-object and surfaces as "model did not return valid JSON".
+    llm_max_tokens: int = 1500
+
     # DeepSeek (OpenAI-compatible)
     deepseek_api_key: str | None = None
     deepseek_model: str = "deepseek-chat"
