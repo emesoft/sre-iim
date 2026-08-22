@@ -33,6 +33,7 @@ export interface IncidentSummary {
   created_at: string
   severity?: string | null
   summary?: string | null
+  headline?: string | null
 }
 
 export interface IncidentDetail {

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from app.domain.documents.entities import EvidenceRef
@@ -12,6 +13,23 @@ from app.interface.http.dto.response.incident import (
     IncidentSummary,
     KnownIssueOut,
 )
+
+_HEADLINE_MAX_LEN = 80
+_QUOTED = re.compile(r"'([^']+)'")
+
+
+def _headline(context: dict) -> str | None:
+    """Pull a short human-readable signal out of raw context for the incidents list — every
+    incident from one connection shares `service`, so distinguishing rows before an AI summary
+    exists needs something more specific. CloudWatch's `alert` text quotes the alarm name
+    (`"CloudWatch alarm 'foo-bar' is in ALARM state: ..."`); reuse that quoted name when present,
+    otherwise fall back to the raw alert text itself."""
+    alert = context.get("alert")
+    if not alert:
+        return None
+    match = _QUOTED.search(str(alert))
+    text = match.group(1) if match else str(alert)
+    return text if len(text) <= _HEADLINE_MAX_LEN else text[: _HEADLINE_MAX_LEN - 1] + "…"
 
 
 def analysis_out(analysis: Analysis, evidence: Sequence[EvidenceRef] | None = None) -> AnalysisOut:
@@ -48,6 +66,7 @@ def incident_summary(incident: Incident, analysis: Analysis | None) -> IncidentS
         created_at=incident.created_at,
         severity=analysis.severity if analysis else None,
         summary=analysis.summary if analysis else None,
+        headline=_headline(incident.context),
     )
 
 

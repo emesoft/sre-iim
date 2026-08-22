@@ -48,6 +48,10 @@ class IncidentSummary(BaseModel):
     created_at: datetime
     severity: str | None = None
     summary: str | None = None
+    # Short human-readable signal extracted from raw context (e.g. the CloudWatch alarm name) —
+    # every incident from the same connection shares `service`, so the list needs something more
+    # specific to tell rows apart before an AI summary exists.
+    headline: str | None = None
 
 
 class IncidentDetail(BaseModel):

@@ -168,6 +168,35 @@ async def test_missing_service_returns_422(client):
     assert r.json()["detail"] == "context.service is required"
 
 
+async def test_list_headline_extracts_quoted_alarm_name_from_alert(client):
+    r = await client.post(
+        "/api/incidents",
+        json={
+            "source": "cloudwatch_alarm",
+            "context": {
+                "service": "rxdevs",
+                "alert": "CloudWatch alarm 'ecs-easyrx-prod-svc-AlarmLow' is in ALARM state: "
+                "Threshold Crossed.",
+            },
+        },
+    )
+    assert r.status_code == 201
+
+    r = await client.get("/api/incidents")
+    assert r.status_code == 200
+    item = next(i for i in r.json() if i["source"] == "cloudwatch_alarm")
+    assert item["headline"] == "ecs-easyrx-prod-svc-AlarmLow"
+
+
+async def test_list_headline_is_null_without_an_alert(client):
+    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    assert r.status_code == 201
+
+    r = await client.get("/api/incidents")
+    item = next(i for i in r.json() if i["id"] == r.json()[0]["id"])
+    assert item["headline"] is None
+
+
 async def test_log_search_merges_logs_and_reanalyzes(client):
     r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
     incident_id = r.json()["incident_id"]

@@ -111,7 +111,9 @@ export function IncidentList({
               <div className="flex items-start justify-between gap-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: m.color }} />
-                  <span className="truncate text-sm font-semibold text-ink">{i.service}</span>
+                  <span className="truncate text-sm font-semibold text-ink">
+                    {i.headline || i.service}
+                  </span>
                 </div>
                 <SeverityBadge severity={i.severity} size="xs" />
               </div>
@@ -119,8 +121,10 @@ export function IncidentList({
                 {i.summary || 'Awaiting analysis…'}
               </p>
               <div className="mt-2 flex items-center justify-between gap-2">
-                <span className="font-mono text-[10px] text-muted">{incidentRef(i.id)}</span>
-                <div className="flex items-center gap-2">
+                <span className="truncate font-mono text-[10px] text-muted">
+                  {i.service} · {incidentRef(i.id)}
+                </span>
+                <div className="flex shrink-0 items-center gap-2">
                   <StatusBadge status={i.status} />
                   <span className="text-[10px] text-muted">{timeAgo(i.created_at)}</span>
                 </div>
