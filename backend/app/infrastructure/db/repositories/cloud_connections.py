@@ -67,7 +67,7 @@ class SqlAlchemyCloudConnectionRepository:
         return cloud_connection_to_domain(row)
 
     async def record_poll_result(
-        self, connection_id: uuid.UUID, *, status: str, error: str | None
+        self, connection_id: uuid.UUID, *, status: str, error: str | None, alarm_count: int | None = None
     ) -> None:
         row = await self._s.get(CloudConnectionRow, connection_id)
         if row is None:
@@ -75,6 +75,7 @@ class SqlAlchemyCloudConnectionRepository:
         row.last_poll_at = datetime.now(timezone.utc)
         row.last_poll_status = status
         row.last_poll_error = error
+        row.last_poll_alarm_count = alarm_count
         await self._s.flush()
 
 

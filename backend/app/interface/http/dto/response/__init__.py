@@ -4,6 +4,7 @@ from app.interface.http.dto.response.auth import AdminLoginResponse
 from app.interface.http.dto.response.cloud_connection import (
     CloudConnectionOut,
     PollResult,
+    PollScheduleOut,
     TestConnectionResult,
 )
 from app.interface.http.dto.response.document import DocumentCreatedResponse, DocumentSummary
@@ -36,6 +37,7 @@ __all__ = [
     "CloudConnectionOut",
     "TestConnectionResult",
     "PollResult",
+    "PollScheduleOut",
     "SettingStatus",
     "AdminLoginResponse",
 ]

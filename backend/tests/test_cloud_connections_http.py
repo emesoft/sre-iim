@@ -185,7 +185,7 @@ async def test_poll_endpoint_creates_incident_from_alarming_connection(client):
 
     r = await client.post("/api/cloud-connections/poll")
     assert r.status_code == 200, r.text
-    assert r.json() == {"polled": 1}
+    assert r.json() == {"polled": 1, "alarm_count": 1, "errors": 0}
 
     r = await client.get("/api/incidents")
     assert r.status_code == 200
@@ -264,14 +264,26 @@ async def test_poll_one_only_polls_that_connection(client):
 
     r = await client.post(f"/api/cloud-connections/{connection_1}/poll")
     assert r.status_code == 200, r.text
-    assert r.json() == {"polled": 1}
+    assert r.json() == {"polled": 1, "alarm_count": 1, "errors": 0}
 
     r = await client.get("/api/cloud-connections")
     by_id = {c["id"]: c for c in r.json()}
     assert by_id[connection_1]["last_poll_status"] == "ok"
+    assert by_id[connection_1]["last_poll_alarm_count"] == 1
     assert by_id[connection_2]["last_poll_status"] is None  # untouched
+    assert by_id[connection_2]["last_poll_alarm_count"] is None
 
 
 async def test_poll_one_404_for_unknown_connection(client):
     r = await client.post("/api/cloud-connections/00000000-0000-0000-0000-000000000000/poll")
     assert r.status_code == 404
+
+
+async def test_poll_schedule_reports_configured_interval(client):
+    """No scheduler runs under the test client (no lifespan) — next_run_at should come back null
+    rather than error, while interval_minutes still reflects config."""
+    r = await client.get("/api/cloud-connections/poll-schedule")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["interval_minutes"] == 60
+    assert body["next_run_at"] is None

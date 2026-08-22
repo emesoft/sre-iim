@@ -137,6 +137,7 @@ class CloudConnectionRow(Base):
     last_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_poll_status: Mapped[str | None] = mapped_column(Text, nullable=True)
     last_poll_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_poll_alarm_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = _utcnow_column()
 
 

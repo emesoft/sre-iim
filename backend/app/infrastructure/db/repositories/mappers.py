@@ -72,6 +72,7 @@ def cloud_connection_to_domain(row) -> CloudConnection:
         last_poll_at=row.last_poll_at,
         last_poll_status=row.last_poll_status,
         last_poll_error=row.last_poll_error,
+        last_poll_alarm_count=row.last_poll_alarm_count,
         created_at=row.created_at,
     )
 

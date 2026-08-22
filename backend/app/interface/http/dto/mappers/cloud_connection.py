@@ -19,5 +19,6 @@ def cloud_connection_out(connection: CloudConnection) -> CloudConnectionOut:
         last_poll_at=connection.last_poll_at,
         last_poll_status=connection.last_poll_status,
         last_poll_error=connection.last_poll_error,
+        last_poll_alarm_count=connection.last_poll_alarm_count,
         created_at=connection.created_at,
     )

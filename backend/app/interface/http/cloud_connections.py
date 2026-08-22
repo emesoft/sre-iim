@@ -5,14 +5,20 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
+from app.infrastructure.config import Settings, get_settings
 from app.interface.http.deps import get_manage_cloud_connections, get_poll_alarms_job, require_admin
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import CloudConnectionCreateRequest
-from app.interface.http.dto.response import CloudConnectionOut, PollResult, TestConnectionResult
+from app.interface.http.dto.response import (
+    CloudConnectionOut,
+    PollResult,
+    PollScheduleOut,
+    TestConnectionResult,
+)
 
 router = APIRouter(
     prefix="/api/cloud-connections", tags=["cloud-connections"], dependencies=[Depends(require_admin)]
@@ -109,9 +115,12 @@ async def test_connection(
 
 @router.post("/poll", response_model=PollResult)
 async def poll_all(job: PollAlarmsJob = Depends(get_poll_alarms_job)) -> PollResult:
-    connections = await job.connections.list()
-    await job.run()
-    return PollResult(polled=len(connections))
+    outcomes = await job.run()
+    return PollResult(
+        polled=len(outcomes),
+        alarm_count=sum(o.alarm_count for o in outcomes),
+        errors=sum(1 for o in outcomes if o.status == "error"),
+    )
 
 
 @router.post("/{connection_id}/poll", response_model=PollResult)
@@ -122,5 +131,22 @@ async def poll_one(
     connection = await job.connections.get(connection_id)
     if connection is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="connection not found")
-    await job.run(connection_id=connection_id)
-    return PollResult(polled=1)
+    outcomes = await job.run(connection_id=connection_id)
+    outcome = outcomes[0]
+    return PollResult(
+        polled=1, alarm_count=outcome.alarm_count, errors=1 if outcome.status == "error" else 0
+    )
+
+
+@router.get("/poll-schedule", response_model=PollScheduleOut)
+async def poll_schedule(request: Request, settings: Settings = Depends(get_settings)) -> PollScheduleOut:
+    """The background poll is one global APScheduler job (see main.py's `lifespan`), not a
+    per-connection timer — `next_run_at` is that job's own next-fire time, read off the scheduler
+    instance stashed on `app.state` at startup. `None` if the scheduler isn't running (e.g. under
+    the test client, which doesn't invoke the app's lifespan by default)."""
+    scheduler = getattr(request.app.state, "scheduler", None)
+    job = scheduler.get_job("poll_cloudwatch_alarms") if scheduler is not None else None
+    return PollScheduleOut(
+        interval_minutes=settings.alarm_poll_interval_minutes,
+        next_run_at=job.next_run_time if job is not None else None,
+    )

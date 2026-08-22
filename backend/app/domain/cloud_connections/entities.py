@@ -25,6 +25,7 @@ class CloudConnection:
     last_poll_at: datetime | None = None
     last_poll_status: str | None = None  # ok | error
     last_poll_error: str | None = None
+    last_poll_alarm_count: int | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None
 

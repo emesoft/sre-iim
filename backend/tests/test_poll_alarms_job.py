@@ -9,7 +9,7 @@ import uuid
 
 import pytest
 
-from app.application.cloud_connections.poll_alarms import PollAlarmsJob
+from app.application.cloud_connections.poll_alarms import ConnectionPollOutcome, PollAlarmsJob
 from app.domain.cloud_connections.entities import AlarmState, CloudConnection, TrackedAlarm
 
 pytestmark = pytest.mark.asyncio
@@ -26,8 +26,8 @@ class FakeConnectionRepo:
     async def list(self):
         return list(self._connections.values())
 
-    async def record_poll_result(self, connection_id, *, status, error):
-        self.poll_results.append((connection_id, status, error))
+    async def record_poll_result(self, connection_id, *, status, error, alarm_count=None):
+        self.poll_results.append((connection_id, status, error, alarm_count))
 
 
 class FakeTrackedAlarmRepo:
@@ -160,10 +160,16 @@ async def test_one_connection_error_does_not_stop_the_others():
         connections=connections, tracked=FakeTrackedAlarmRepo(), fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
     )
-    await job.run()
+    outcomes = await job.run()
     assert len(ingest.calls) == 1  # good connection still processed
-    assert (bad.id, "error", "SSO token expired") in connections.poll_results
-    assert any(cid == good.id and status == "ok" for cid, status, _ in connections.poll_results)
+    assert (bad.id, "error", "SSO token expired", None) in connections.poll_results
+    assert any(
+        cid == good.id and status == "ok" for cid, status, _, _ in connections.poll_results
+    )
+    assert {(o.connection_id, o.status, o.alarm_count) for o in outcomes} == {
+        (bad.id, "error", 0),
+        (good.id, "ok", 1),
+    }
 
 
 async def test_resolve_failure_for_one_connection_does_not_stop_the_others():
@@ -195,10 +201,12 @@ async def test_resolve_failure_for_one_connection_does_not_stop_the_others():
     await job.run()
 
     # The bad connection's failure is recorded...
-    assert (bad.id, "error", "no analysis to resolve") in connections.poll_results
+    assert (bad.id, "error", "no analysis to resolve", None) in connections.poll_results
     # ...and the good connection is still polled and creates its incident.
     assert len(ingest.calls) == 1
-    assert any(cid == good.id and status == "ok" for cid, status, _ in connections.poll_results)
+    assert any(
+        cid == good.id and status == "ok" for cid, status, _, _ in connections.poll_results
+    )
 
 
 async def test_run_with_a_connection_id_only_polls_that_connection():
@@ -216,9 +224,10 @@ async def test_run_with_a_connection_id_only_polls_that_connection():
         connections=connections, tracked=FakeTrackedAlarmRepo(), fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
     )
-    await job.run(connection_id=target.id)
+    outcomes = await job.run(connection_id=target.id)
     assert len(ingest.calls) == 1
-    assert connections.poll_results == [(target.id, "ok", None)]
+    assert connections.poll_results == [(target.id, "ok", None, 1)]
+    assert outcomes == [ConnectionPollOutcome(target.id, status="ok", error=None, alarm_count=1)]
 
 
 async def test_run_with_an_unknown_connection_id_is_a_noop():
@@ -227,5 +236,23 @@ async def test_run_with_an_unknown_connection_id_is_a_noop():
         connections=connections, tracked=FakeTrackedAlarmRepo(), fetcher=FakeFetcher({}),
         ingest=FakeIngest(), resolve=FakeResolve(), uow=FakeUnitOfWork(),
     )
-    await job.run(connection_id=uuid.uuid4())
+    outcomes = await job.run(connection_id=uuid.uuid4())
     assert connections.poll_results == []
+    assert outcomes == []
+
+
+async def test_multiple_alarming_alarms_are_all_counted():
+    conn = _connection()
+    fetcher = FakeFetcher({
+        conn.id: [
+            AlarmState(arn="arn:1", name="cpu-high", state="ALARM"),
+            AlarmState(arn="arn:2", name="mem-high", state="ALARM"),
+            AlarmState(arn="arn:3", name="disk-ok", state="OK"),
+        ]
+    })
+    job = PollAlarmsJob(
+        connections=FakeConnectionRepo([conn]), tracked=FakeTrackedAlarmRepo(), fetcher=fetcher,
+        ingest=FakeIngest(), resolve=FakeResolve(), uow=FakeUnitOfWork(),
+    )
+    outcomes = await job.run()
+    assert outcomes == [ConnectionPollOutcome(conn.id, status="ok", error=None, alarm_count=2)]

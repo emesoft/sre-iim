@@ -83,6 +83,7 @@ async def lifespan(app: FastAPI):
         id="poll_cloudwatch_alarms",
     )
     scheduler.start()
+    app.state.scheduler = scheduler
     yield
     scheduler.shutdown(wait=False)
 

@@ -31,9 +31,11 @@ class CloudConnectionRepository(Protocol):
         ...
 
     async def record_poll_result(
-        self, connection_id: uuid.UUID, *, status: str, error: str | None
+        self, connection_id: uuid.UUID, *, status: str, error: str | None, alarm_count: int | None = None
     ) -> None:
-        """Update last_poll_at (now)/last_poll_status/last_poll_error after a poll attempt."""
+        """Update last_poll_at (now)/last_poll_status/last_poll_error/last_poll_alarm_count after a
+        poll attempt. `alarm_count` is the number of alarms seen in ALARM state this poll — None on
+        an error (the fetch never got far enough to count anything)."""
         ...
 
 

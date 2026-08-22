@@ -23,6 +23,7 @@ class CloudConnectionOut(BaseModel):
     last_poll_at: datetime | None
     last_poll_status: str | None
     last_poll_error: str | None
+    last_poll_alarm_count: int | None
     created_at: datetime
 
 
@@ -34,6 +35,19 @@ class TestConnectionResult(BaseModel):
 
 
 class PollResult(BaseModel):
-    """`POST /api/cloud-connections/poll` (and `/{id}/poll`) response."""
+    """`POST /api/cloud-connections/poll` (and `/{id}/poll`) response — lets the UI show
+    "refresh worked, N alarms active" (or "M connections failed") right after the click, without
+    a second round-trip to re-fetch connections."""
 
     polled: int
+    alarm_count: int
+    errors: int
+
+
+class PollScheduleOut(BaseModel):
+    """`GET /api/cloud-connections/poll-schedule` response — the background poll is one global
+    APScheduler job covering every connection, not a per-connection timer, so this reflects the
+    scheduler's own next-run time rather than being derived from any one connection's last poll."""
+
+    interval_minutes: int
+    next_run_at: datetime | None

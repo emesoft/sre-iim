@@ -27,6 +27,17 @@ from app.domain.cloud_connections.ports import (
 from app.domain.shared import UnitOfWork
 
 
+@dataclass(frozen=True)
+class ConnectionPollOutcome:
+    """Result of polling one connection — what the HTTP layer needs to answer "did the refresh
+    work, and did it find anything?" without a second round-trip to the DB."""
+
+    connection_id: uuid.UUID
+    status: str  # ok | error
+    error: str | None
+    alarm_count: int  # 0 on error — the fetch never got far enough to count anything
+
+
 def _build_alert_context(connection: CloudConnection, alarm: AlarmState) -> dict:
     description = f"CloudWatch alarm '{alarm.name}' is in ALARM state"
     if alarm.reason:
@@ -46,7 +57,7 @@ class PollAlarmsJob:
     resolve: ResolveIncident
     uow: UnitOfWork
 
-    async def run(self, *, connection_id: uuid.UUID | None = None) -> None:
+    async def run(self, *, connection_id: uuid.UUID | None = None) -> list[ConnectionPollOutcome]:
         """Poll every connection, or just one (the per-row "Refresh" button on the Settings
         page — `POST /api/cloud-connections/{id}/poll`). An unknown connection_id is a no-op:
         the router layer is responsible for 404ing before calling this."""
@@ -56,9 +67,11 @@ class PollAlarmsJob:
         else:
             connections = await self.connections.list()
 
+        outcomes: list[ConnectionPollOutcome] = []
         for connection in connections:
             try:
                 alarms = await self.fetcher.list_alarms(connection)
+                alarm_count = sum(1 for alarm in alarms if alarm.state == "ALARM")
                 for alarm in alarms:
                     await self._apply(connection, alarm)
             except Exception as exc:  # noqa: BLE001 - isolate this connection's failure, keep polling others
@@ -66,10 +79,19 @@ class PollAlarmsJob:
                     connection.id, status="error", error=str(exc)
                 )
                 await self.uow.commit()
+                outcomes.append(
+                    ConnectionPollOutcome(connection.id, status="error", error=str(exc), alarm_count=0)
+                )
                 continue
 
-            await self.connections.record_poll_result(connection.id, status="ok", error=None)
+            await self.connections.record_poll_result(
+                connection.id, status="ok", error=None, alarm_count=alarm_count
+            )
             await self.uow.commit()
+            outcomes.append(
+                ConnectionPollOutcome(connection.id, status="ok", error=None, alarm_count=alarm_count)
+            )
+        return outcomes
 
     async def _apply(self, connection: CloudConnection, alarm: AlarmState) -> None:
         existing = await self.tracked.get(connection.id, alarm.arn)
