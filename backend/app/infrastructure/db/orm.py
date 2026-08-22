@@ -157,3 +157,17 @@ class TrackedAlarmRow(Base):
         UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
     )
     updated_at: Mapped[datetime] = _utcnow_column()
+
+
+class AppSettingRow(Base):
+    """Generic encrypted key-value store for app-wide secrets (e.g. the Claude Code headless
+    OAuth token entered on the Settings page) that don't fit the per-project cloud_connections
+    shape."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
