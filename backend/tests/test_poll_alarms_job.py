@@ -103,6 +103,7 @@ async def test_new_alarm_creates_an_incident_without_analyzing_it():
     await job.run()
     assert len(ingest.calls) == 1
     assert ingest.calls[0][0] == "cloudwatch_alarm"
+    assert ingest.calls[0][1]["env"] == conn.env
     assert ingest.calls[0][2] == "new"  # status — no auto-analysis
     assert (await tracked.get(conn.id, "arn:1")).last_state == "ALARM"
 

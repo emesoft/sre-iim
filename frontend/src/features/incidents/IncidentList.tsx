@@ -122,7 +122,8 @@ export function IncidentList({
               </p>
               <div className="mt-2 flex items-center justify-between gap-2">
                 <span className="truncate font-mono text-[10px] text-muted">
-                  {i.service} · {incidentRef(i.id)}
+                  {i.service}
+                  {i.env ? ` · ${i.env}` : ''} · {incidentRef(i.id)}
                 </span>
                 <div className="flex shrink-0 items-center gap-2">
                   <StatusBadge status={i.status} />

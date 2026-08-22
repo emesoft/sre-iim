@@ -77,6 +77,7 @@ def incident_summary(incident: Incident, analysis: Analysis | None) -> IncidentS
         severity=analysis.severity if analysis else None,
         summary=analysis.summary if analysis else None,
         headline=_headline(incident.context),
+        env=incident.context.get("env"),
     )
 
 
@@ -97,4 +98,6 @@ def incident_detail(
         log_group=incident.log_group,
         ticket_url=incident.ticket_url,
         analysis=analysis_out(analysis, evidence) if analysis else None,
+        headline=_headline(incident.context),
+        env=incident.context.get("env"),
     )

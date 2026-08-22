@@ -42,7 +42,7 @@ def _build_alert_context(connection: CloudConnection, alarm: AlarmState) -> dict
     description = f"CloudWatch alarm '{alarm.name}' is in ALARM state"
     if alarm.reason:
         description += f": {alarm.reason}"
-    context: dict = {"service": connection.project, "alert": description}
+    context: dict = {"service": connection.project, "env": connection.env, "alert": description}
     if alarm.metric_name:
         context["metrics"] = {"namespace": alarm.namespace, "metric_name": alarm.metric_name}
     return context

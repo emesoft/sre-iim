@@ -37,6 +37,7 @@ export interface IncidentSummary {
   severity?: string | null
   summary?: string | null
   headline?: string | null
+  env?: string | null
 }
 
 export interface IncidentDetail {
@@ -51,6 +52,8 @@ export interface IncidentDetail {
   log_group: string | null
   ticket_url: string | null
   analysis: AnalysisOut | null
+  headline: string | null
+  env: string | null
 }
 
 export interface LogEventOut {

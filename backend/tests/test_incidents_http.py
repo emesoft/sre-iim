@@ -219,6 +219,33 @@ async def test_list_headline_is_null_without_an_alert(client):
     assert item["headline"] is None
 
 
+async def test_env_appears_in_list_and_detail_when_present_in_context(client):
+    r = await client.post(
+        "/api/incidents",
+        json={
+            "source": "cloudwatch_alarm",
+            "context": {"service": "rxdevs", "env": "dev", "alert": "CloudWatch alarm 'x'"},
+        },
+    )
+    incident_id = r.json()["incident_id"]
+
+    r = await client.get("/api/incidents")
+    item = next(i for i in r.json() if i["id"] == incident_id)
+    assert item["env"] == "dev"
+
+    r = await client.get(f"/api/incidents/{incident_id}")
+    assert r.json()["env"] == "dev"
+    assert r.json()["headline"] == "x"
+
+
+async def test_env_is_null_without_one_in_context(client):
+    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    incident_id = r.json()["incident_id"]
+
+    r = await client.get(f"/api/incidents/{incident_id}")
+    assert r.json()["env"] is None
+
+
 async def test_log_search_merges_logs_and_reanalyzes(client):
     r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
     incident_id = r.json()["incident_id"]

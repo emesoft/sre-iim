@@ -55,6 +55,9 @@ class IncidentSummary(BaseModel):
     # every incident from the same connection shares `service`, so the list needs something more
     # specific to tell rows apart before an AI summary exists.
     headline: str | None = None
+    # From context.env (set by PollAlarmsJob from the connection's env) — None for incidents
+    # created before this field existed, or created without a cloud connection.
+    env: str | None = None
 
 
 class IncidentDetail(BaseModel):
@@ -71,6 +74,10 @@ class IncidentDetail(BaseModel):
     log_group: str | None = None
     ticket_url: str | None = None
     analysis: AnalysisOut | None = None
+    # See IncidentSummary — same fields, repeated here since the detail view doesn't otherwise
+    # derive them from `context` itself.
+    headline: str | None = None
+    env: str | None = None
 
 
 class LogEventOut(BaseModel):

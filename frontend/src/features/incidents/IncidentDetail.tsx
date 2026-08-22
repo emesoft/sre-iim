@@ -119,8 +119,12 @@ export function IncidentDetail({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Eyebrow>{incidentRef(d.id)}</Eyebrow>
+          <h2 className="mt-1.5 font-display text-2xl font-extrabold tracking-tight text-ink">
+            {d.headline || d.service}
+          </h2>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            <h2 className="font-display text-2xl font-extrabold tracking-tight text-ink">{d.service}</h2>
+            <Badge tone="neutral">{d.service}</Badge>
+            {d.env && <Badge tone="neutral">{d.env}</Badge>}
             {a && <SeverityBadge severity={a.severity} />}
             <StatusBadge status={d.status} />
             {a && <Badge tone={a._cache === 'HIT' ? 'success' : 'neutral'}>cache {a._cache}</Badge>}
