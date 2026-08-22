@@ -206,9 +206,11 @@ Quay màn hình một lượt chạy thành công cũng đáng, phòng khi mất
 
 Chủ động nêu, đừng để bị hỏi vặn:
 
-- **Chưa có auto-ingest.** Alarm chưa tự tạo incident; SRE vẫn tạo tay. Đây là chủ đích — cần các team
-  chủ quản cấp quyền trước.
-- **Auth là gate tạm ở frontend.** Backend chưa xác thực.
+- **Auto-ingest từ CloudWatch alarm đã có** (xem mục 7) nhưng cần cấu hình AWS connection trước —
+  mặc định demo không bật vì cần tài khoản AWS thật.
+- **Auth trang chính là gate tạm ở frontend** (bất kỳ email/password nào cũng vào được). Riêng trang
+  **Settings** đã có xác thực thật (1 password admin dùng chung, xem mục 7) — hai cơ chế độc lập
+  nhau, đừng nhầm.
 - **Log trong demo là giả lập.** Adapter CloudWatch thật đã có và chạy được với SSO profile, chỉ là
   demo này không dùng tới.
 - **Form log search chưa gửi bộ lọc theo error message.** API đã hỗ trợ `filter_pattern`, UI thì chưa
@@ -217,7 +219,84 @@ Chủ động nêu, đừng để bị hỏi vặn:
 
 ---
 
-## 6. Đổi sang provider khác
+## 6. Auto-ingest từ CloudWatch alarm (tùy chọn, cần tài khoản AWS thật)
+
+Ngoài việc tạo incident bằng tay, app có thể **tự động** poll CloudWatch Alarms mỗi 60 phút (hoặc
+bấm "Refresh now" để poll ngay) và tự tạo/tự resolve incident theo trạng thái alarm. Không bắt buộc
+cho demo cơ bản (mục 1–6 ở trên không cần bước này), chỉ cần khi muốn trình bày luồng SRE thật với
+alarm thật.
+
+### 6.1. Điền thêm vào `.env`
+
+```bash
+# Mã hóa access key AWS lưu trong DB (bắt buộc để dùng tính năng AWS connection)
+SECRET_ENCRYPTION_KEY=...   # sinh bằng: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# Password admin để vào trang Settings (nơi thêm AWS connection) — 1 password dùng chung, không phải per-user
+ADMIN_PASSWORD=...          # tự chọn
+ADMIN_JWT_SECRET=...        # sinh bằng: python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Thiếu `SECRET_ENCRYPTION_KEY` → lưu AWS connection báo lỗi 500. Thiếu `ADMIN_PASSWORD`/
+`ADMIN_JWT_SECRET` → trang Settings báo lỗi 503 (server chưa cấu hình), không phải "sai mật khẩu".
+
+Sau khi sửa `.env`, rebuild lại cả 2 service (Dockerfile backend đã cài sẵn Node.js/CLI cho
+provider `claude_cli`, xem mục 8):
+
+```bash
+docker compose up -d --build backend frontend
+```
+
+### 6.2. Chuẩn bị quyền AWS (chọn 1 trong 2 cách)
+
+**Cách A — SSO profile (khuyến nghị nếu công ty đã dùng AWS IAM Identity Center):**
+
+Cấu hình sẵn trong `~/.aws/config` **trên máy chạy `docker compose`** (không phải trong app) —
+ví dụ:
+
+```ini
+[sso-session my-sso]
+sso_start_url = https://your-org.awsapps.com/start
+sso_region = us-east-1
+sso_registration_scopes = sso:account:access
+
+[profile my-project-dev]
+sso_session = my-sso
+sso_account_id = 123456789012
+sso_role_name = ReadOnlyAccess
+region = us-east-1
+output = json
+```
+
+Rồi đăng nhập (mở trình duyệt, cache token vào `~/.aws/sso/cache/` — container đọc read-only từ
+đây, tự đăng nhập hộ được):
+
+```bash
+aws sso login --profile my-project-dev
+```
+
+Token có hạn (thường vài giờ tùy tổ chức) — hết hạn thì poll sẽ lỗi, chạy lại đúng lệnh trên để
+làm mới, không cần sửa gì trong app.
+
+**Cách B — Access key (đơn giản hơn, không cần cấu hình gì trước):** tạo 1 IAM user với quyền tối
+thiểu `cloudwatch:DescribeAlarms` (policy `CloudWatchReadOnlyAccess` là đủ), tạo Access Key cho
+user đó, dùng trực tiếp ở bước 7.3 — không cần bước nào ở máy host.
+
+### 6.3. Thêm connection trong app
+
+1. Vào **Settings** → nhập `ADMIN_PASSWORD` nếu được hỏi.
+2. Điền form "Add connection": chọn Project (hoặc "Other..." để gõ tên tự do), Env, Region.
+3. Chọn **SSO profile** (điền đúng tên profile, ví dụ `my-project-dev`) hoặc **Access key** (dán
+   Access Key ID + Secret access key — được mã hóa trước khi lưu, không bao giờ hiển thị lại).
+4. **Add connection** → bấm **Test** để xác nhận gọi CloudWatch được thật.
+5. Bấm **Refresh now** để poll ngay, hoặc đợi tự động (60 phút/lần).
+
+Alarm nào đang ở trạng thái **ALARM** tại thời điểm poll sẽ tự tạo 1 incident (xem ở trang
+**Incidents**, nguồn `cloudwatch_alarm`); khi alarm về **OK**, incident tương ứng tự chuyển
+**resolved**. Không có alarm nào đang kêu → poll xong không có gì mới, đây là hành vi đúng, không
+phải lỗi.
+
+## 7. Đổi sang provider khác
 
 Adapter `deepseek` thực chất là client OpenAI-compatible, base URL cấu hình được — nên đổi provider chỉ
 là đổi env, không sửa code:
@@ -247,3 +326,16 @@ LLM_PROVIDER=bedrock
 EMBEDDING_PROVIDER=titan
 EMBEDDING_DIM=1024      # đổi dim cần tạo lại DB: docker compose down -v
 ```
+
+**`claude_cli` — dùng subscription Claude Code cá nhân thay vì trả phí API (CHỈ demo local, không
+public, không dùng cho sản phẩm thật — xem cảnh báo trong
+`backend/app/infrastructure/llm/claude_cli.py`):**
+
+```bash
+LLM_PROVIDER=claude_cli
+CLAUDE_CLI_MODEL=sonnet    # hoặc opus/haiku
+```
+
+Setup: chạy `claude setup-token` trên máy chạy `docker compose` (mở trình duyệt đăng nhập Claude
+Code, in ra 1 token) → dán token đó vào app, ở **Settings** → mục "Claude Code token" (không phải
+`.env`) → Save. Cần `SECRET_ENCRYPTION_KEY` đã cấu hình (mục 7.1) để lưu token này.
