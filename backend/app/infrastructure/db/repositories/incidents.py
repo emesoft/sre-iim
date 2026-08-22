@@ -130,10 +130,13 @@ class SqlAlchemyIncidentRepository:
             for model_id, i, o, c in rows
         ]
 
-    async def set_status(self, incident_id: uuid.UUID, status: str) -> None:
+    async def set_status(
+        self, incident_id: uuid.UUID, status: str, *, error_message: str | None = None
+    ) -> None:
         row = await self._s.get(IncidentRow, incident_id)
         if row is not None:
             row.status = status
+            row.error_message = error_message
 
     async def set_ticket_url(self, incident_id: uuid.UUID, ticket_url: str) -> None:
         row = await self._s.get(IncidentRow, incident_id)

@@ -100,4 +100,5 @@ def incident_detail(
         analysis=analysis_out(analysis, evidence) if analysis else None,
         headline=_headline(incident.context),
         env=incident.context.get("env"),
+        error_message=incident.error_message,
     )

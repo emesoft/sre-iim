@@ -78,6 +78,9 @@ class IncidentDetail(BaseModel):
     # derive them from `context` itself.
     headline: str | None = None
     env: str | None = None
+    # The reason the last analysis attempt failed (status == "failed"); persisted so it survives
+    # a page reload, not just visible to whoever was watching the SSE stream live.
+    error_message: str | None = None
 
 
 class LogEventOut(BaseModel):

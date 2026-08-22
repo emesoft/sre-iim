@@ -82,7 +82,13 @@ class IncidentRepository(Protocol):
         (input_tokens IS NULL) are excluded. Backs the Settings-page usage summary."""
         ...
 
-    async def set_status(self, incident_id: uuid.UUID, status: str) -> None: ...
+    async def set_status(
+        self, incident_id: uuid.UUID, status: str, *, error_message: str | None = None
+    ) -> None:
+        """`error_message` is stored as-is (only meaningful for `status="failed"`) and cleared
+        (set to None) on every other status — a new attempt or a success must not leave a stale
+        failure reason from a previous try."""
+        ...
 
     async def update_context(
         self,

@@ -22,6 +22,9 @@ class Incident:
     status: str = "new"  # new | analyzing | analyzed | failed | ticketed | resolved
     log_group: str | None = None
     ticket_url: str | None = None
+    # The reason the last analysis attempt failed (status == "failed"). Cleared whenever a new
+    # attempt starts or succeeds — see IncidentRepository.set_status.
+    error_message: str | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None

@@ -54,6 +54,7 @@ export interface IncidentDetail {
   analysis: AnalysisOut | null
   headline: string | null
   env: string | null
+  error_message: string | null
 }
 
 export interface LogEventOut {

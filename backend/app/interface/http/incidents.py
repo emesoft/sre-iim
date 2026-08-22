@@ -89,7 +89,9 @@ async def _run_analysis(app: "FastAPI", bus: IncidentEventBus, incident: Inciden
             try:
                 analysis = await deps.ingest.analyze_incident(incident, reporter=reporter)
             except Exception as exc:  # noqa: BLE001 - any analyzer failure surfaces as "failed"
-                await deps.ingest.incidents.set_status(incident.id, "failed")
+                await deps.ingest.incidents.set_status(
+                    incident.id, "failed", error_message=str(exc)
+                )
                 await deps.ingest.uow.commit()
                 await bus.publish(incident_id, {"event": "failed", "data": {"message": str(exc)}})
                 return

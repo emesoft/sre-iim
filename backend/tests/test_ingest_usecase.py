@@ -48,8 +48,9 @@ class FakeIncidentRepo:
         found = [a for a in self.analyses.values() if a.incident_id == incident_id]
         return found[-1] if found else None
 
-    async def set_status(self, incident_id, status):
+    async def set_status(self, incident_id, status, *, error_message=None):
         self.incidents[incident_id].status = status
+        self.incidents[incident_id].error_message = error_message
 
     async def update_context(self, incident_id, *, context, fingerprint, log_group=None):
         incident = self.incidents[incident_id]

@@ -257,7 +257,7 @@ export function IncidentDetail({
             </span>
             <h3 className="font-display text-base font-bold text-ink">Analysis failed</h3>
             <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink-2">
-              {stream.error ?? 'The AI analysis could not complete.'}
+              {stream.error ?? d.error_message ?? 'The AI analysis could not complete.'}
             </p>
           </div>
         </Card>
