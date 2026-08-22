@@ -50,6 +50,8 @@ services:
       AZDO_ORG: ${AZDO_ORG:-}
       AZDO_PROJECT: ${AZDO_PROJECT:-}
       AZDO_PAT: ${AZDO_PAT:-}
+      # --- CloudWatch alarm polling: encryption key for storing access keys ---
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iim}:${DB_PASSWORD:-iim}@db:5432/${POSTGRES_DB:-iim}
     depends_on:
       db:
