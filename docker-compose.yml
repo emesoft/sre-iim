@@ -30,7 +30,7 @@ services:
       ANALYSIS_MODE: ${ANALYSIS_MODE:-single}
       MAX_ROUNDS: ${MAX_ROUNDS:-2}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-1800}
-      # --- LLM provider: bedrock | deepseek (any OpenAI-compatible endpoint) ---
+      # --- LLM provider: bedrock | deepseek (any OpenAI-compatible endpoint) | claude_cli (local demo only) ---
       LLM_PROVIDER: ${LLM_PROVIDER:-bedrock}
       AWS_REGION: ${AWS_REGION:-ap-southeast-1}
       MODEL_ID: ${MODEL_ID:-anthropic.claude-3-5-haiku-20241022-v1:0}
@@ -39,6 +39,7 @@ services:
       DEEPSEEK_MODEL: ${DEEPSEEK_MODEL:-deepseek-chat}
       DEEPSEEK_BASE_URL: ${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
       LLM_MAX_TOKENS: ${LLM_MAX_TOKENS:-1500}
+      CLAUDE_CLI_MODEL: ${CLAUDE_CLI_MODEL:-sonnet}
       # --- Embedding provider: titan | jina. EMBEDDING_DIM is read by migration 0002 at startup. ---
       EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-titan}
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-amazon.titan-embed-text-v2:0}
