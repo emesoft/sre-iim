@@ -41,8 +41,12 @@ class FakeIncidentRepo:
     def __init__(self, rows):
         self._rows = rows
 
-    async def list_by_date_range(self, start, end):
-        return [(i, a) for i, a in self._rows if start <= i.created_at < end]
+    async def list_by_date_range(self, start, end, *, service=None):
+        return [
+            (i, a)
+            for i, a in self._rows
+            if start <= i.created_at < end and (service is None or i.service == service)
+        ]
 
 
 class FakeChatModel:
@@ -95,3 +99,15 @@ async def test_generate_with_no_incidents_still_calls_chat():
     assert result.incidents == []
     assert result.counts_by_severity == {}
     assert "No incidents" in chat.last_prompt[1]
+
+
+async def test_generate_filters_by_service():
+    d = date(2026, 7, 25)
+    gcm = _incident("GCM", "new", datetime(2026, 7, 25, 10, tzinfo=timezone.utc))
+    evp = _incident("EVP", "new", datetime(2026, 7, 25, 11, tzinfo=timezone.utc))
+    repo = FakeIncidentRepo([(gcm, None), (evp, None)])
+
+    result = await DailyReport(incidents=repo, chat=FakeChatModel()).generate(d, service="GCM")
+
+    assert len(result.incidents) == 1
+    assert result.incidents[0].id == str(gcm.id)

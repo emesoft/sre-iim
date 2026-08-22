@@ -109,7 +109,7 @@ function Dashboard({
             {view === 'knowledge' && (
               <KnowledgeBase data={data} query={query} onRetry={refresh} onNew={() => setShowDoc(true)} />
             )}
-            {view === 'reports' && <Reports />}
+            {view === 'reports' && <Reports incidents={data.incidents} />}
             {view === 'settings' && <Settings />}
           </div>
         </main>

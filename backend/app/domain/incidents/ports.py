@@ -67,9 +67,10 @@ class IncidentRepository(Protocol):
     ) -> list[tuple[Incident, Analysis | None]]: ...
 
     async def list_by_date_range(
-        self, start: datetime, end: datetime
+        self, start: datetime, end: datetime, *, service: str | None = None
     ) -> list[tuple[Incident, Analysis | None]]:
-        """Incidents created in `[start, end)`, newest first — backs the daily report."""
+        """Incidents created in `[start, end)`, newest first — backs the daily report.
+        `service` optionally scopes the report to one project."""
         ...
 
     async def add_analysis(self, analysis: Analysis) -> Analysis: ...

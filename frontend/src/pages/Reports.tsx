@@ -1,16 +1,18 @@
-import { useEffect, useState } from 'react'
-import { Check, Clipboard, FileText, ListChecks } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Check, Clipboard, FileText, ListChecks, Sparkles } from 'lucide-react'
 import { api, errText, isUnreachable } from '../lib/api'
-import type { DailyReportOut } from '../lib/types'
+import type { DailyReportOut, IncidentSummary } from '../lib/types'
 import { Card, CardHeader } from '../components/ui/Card'
 import { Badge } from '../components/ui/Badge'
 import { Button } from '../components/ui/Button'
 import { SeverityBadge } from '../components/ui/SeverityBadge'
 import { StatusBadge } from '../components/ui/StatusBadge'
-import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
+import { Skeleton } from '../components/ui/Skeleton'
 import { ErrorState } from '../components/ui/ErrorState'
 import { incidentRef } from '../lib/format'
+
+const ALL_PROJECTS = 'All projects'
 
 function todayIsoDate(): string {
   const d = new Date()
@@ -18,32 +20,35 @@ function todayIsoDate(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
 }
 
-export function Reports() {
+export function Reports({ incidents }: { incidents: IncidentSummary[] }) {
   const [date, setDate] = useState(todayIsoDate)
+  const [project, setProject] = useState(ALL_PROJECTS)
   const [report, setReport] = useState<DailyReportOut | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [unreachable, setUnreachable] = useState(false)
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => {
-    let alive = true
+  const projects = useMemo(
+    () => [ALL_PROJECTS, ...Array.from(new Set(incidents.map((i) => i.service))).sort()],
+    [incidents],
+  )
+
+  const generate = () => {
     setLoading(true)
     setErr(null)
     setCopied(false)
+    const params = new URLSearchParams({ date })
+    if (project !== ALL_PROJECTS) params.set('service', project)
     api
-      .get<DailyReportOut>(`/api/reports/daily?date=${date}`)
-      .then((r) => alive && setReport(r))
+      .get<DailyReportOut>(`/api/reports/daily?${params}`)
+      .then(setReport)
       .catch((e) => {
-        if (!alive) return
         setErr(errText(e))
         setUnreachable(isUnreachable(e))
       })
-      .finally(() => alive && setLoading(false))
-    return () => {
-      alive = false
-    }
-  }, [date])
+      .finally(() => setLoading(false))
+  }
 
   const copy = () => {
     if (!report) return
@@ -56,25 +61,52 @@ export function Reports() {
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="animate-in mx-auto max-w-3xl space-y-5 pt-2">
-        <div className="flex items-center justify-between gap-3">
-          <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
-            Date
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-            />
-          </label>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
+              Date
+              <input
+                type="date"
+                value={date}
+                onChange={(e) => setDate(e.target.value)}
+                className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium text-ink-2">
+              Project
+              <select
+                value={project}
+                onChange={(e) => setProject(e.target.value)}
+                className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+              >
+                {projects.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <Button onClick={generate} disabled={loading}>
+            <Sparkles size={15} />
+            {loading ? 'Generating…' : report ? 'Regenerate report' : 'Generate report'}
+          </Button>
         </div>
 
         {err ? (
           <ErrorState detail={err} unreachable={unreachable} />
-        ) : loading || !report ? (
+        ) : loading ? (
           <div className="space-y-3">
             <Skeleton className="h-24 rounded-2xl" />
             <Skeleton className="h-56 rounded-2xl" />
           </div>
+        ) : !report ? (
+          <EmptyState
+            icon={FileText}
+            title="No report yet"
+            hint="Pick a date and project, then click Generate report."
+            className="mt-3 border-0 py-12"
+          />
         ) : (
           <>
             <div className="flex flex-wrap gap-2">

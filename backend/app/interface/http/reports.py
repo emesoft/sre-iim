@@ -16,10 +16,12 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 @router.get("/daily", response_model=DailyReportOut)
 async def get_daily_report_view(
     report_date: date = Query(..., alias="date"),
+    service: str | None = Query(default=None),
     report: DailyReport = Depends(get_daily_report),
 ) -> DailyReportOut:
-    """Roll up `date`'s incidents into a Slack-postable digest (counts + narrative markdown)."""
-    result = await report.generate(report_date)
+    """Roll up `date`'s incidents into a Slack-postable digest (counts + narrative markdown).
+    `service` optionally scopes the report to one project."""
+    result = await report.generate(report_date, service=service)
     return DailyReportOut(
         report_date=result.report_date,
         counts_by_severity=result.counts_by_severity,
