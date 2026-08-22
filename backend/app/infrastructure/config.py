@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     demo_logs: bool = False
 
     # --- LLM provider (decision 0016) ---
-    llm_provider: str = "bedrock"  # bedrock | deepseek
+    llm_provider: str = "bedrock"  # bedrock | deepseek | claude_cli
     max_rounds: int = 2  # critic corrective-retrieval loop cap
 
     # Bedrock (Claude)
@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     deepseek_api_key: str | None = None
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com"
+
+    # Claude Code CLI (local demo only — see infrastructure/llm/claude_cli.py). Runs the `claude`
+    # headless CLI as a subprocess, authenticated with a Claude Code subscription token entered on
+    # the Settings page, NOT an Anthropic API key. Anthropic's terms restrict subscription OAuth to
+    # "ordinary use" and CI, not an always-on backend — this provider is for local/demo use only;
+    # switch to `bedrock` or `deepseek` (real API billing) before any production deployment.
+    claude_cli_model: str = "sonnet"
 
     # --- Embedding provider (decision 0016) ---
     embedding_provider: str = "titan"  # titan | jina

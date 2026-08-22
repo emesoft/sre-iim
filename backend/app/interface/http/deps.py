@@ -46,6 +46,7 @@ from app.infrastructure.events import IncidentEventBus, default_bus
 from app.infrastructure.graph.analyzer import GraphAnalyzer
 from app.infrastructure.llm.bedrock_analyzer import BedrockAnalyzer
 from app.infrastructure.llm.chat import BedrockChatModel, DeepSeekChatModel
+from app.infrastructure.llm.claude_cli import ClaudeCliAnalyzer, ClaudeCliChatModel
 from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
@@ -67,6 +68,8 @@ def select_base_analyzer(settings: Settings) -> Analyzer:
     """Pick the single-call provider analyzer from config (decision 0016). Pure — unit-testable."""
     if settings.llm_provider == "deepseek":
         return DeepSeekAnalyzer(settings)
+    if settings.llm_provider == "claude_cli":
+        return ClaudeCliAnalyzer(settings)
     return BedrockAnalyzer(settings)
 
 
@@ -79,6 +82,8 @@ def select_chat_model(settings: Settings) -> ChatModel:
     """Pick the ChatModel adapter (graph node LLM) from config. Pure — unit-testable."""
     if settings.llm_provider == "deepseek":
         return DeepSeekChatModel(settings)
+    if settings.llm_provider == "claude_cli":
+        return ClaudeCliChatModel(settings)
     return BedrockChatModel(settings)
 
 
@@ -111,9 +116,12 @@ def get_analyzer(
     settings = get_settings()
     retriever = SqlAlchemyRetriever(session)
     if settings.analysis_mode == "graph":
-        main_model = (
-            settings.deepseek_model if settings.llm_provider == "deepseek" else settings.model_id
-        )
+        if settings.llm_provider == "deepseek":
+            main_model = settings.deepseek_model
+        elif settings.llm_provider == "claude_cli":
+            main_model = settings.claude_cli_model
+        else:
+            main_model = settings.model_id
         return GraphAnalyzer(
             select_chat_model(settings),
             embedder,
