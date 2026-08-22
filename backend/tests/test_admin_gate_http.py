@@ -87,3 +87,17 @@ async def test_cloud_connections_with_a_valid_token_is_allowed(client):
 async def test_cloud_connections_with_a_bogus_token_is_401(client):
     r = await client.get("/api/cloud-connections", headers={"Authorization": "Bearer garbage"})
     assert r.status_code == 401
+
+
+async def test_login_with_unset_jwt_secret_is_503_not_401(client):
+    # A misconfigured server (ADMIN_JWT_SECRET unset) must read as "server broken", not "wrong
+    # password" — the security-review fix for the fail-open-on-empty-secret finding.
+    app.dependency_overrides[get_settings] = lambda: Settings(admin_password="letmein", admin_jwt_secret="")
+    r = await client.post("/api/auth/admin-login", json={"password": "letmein"})
+    assert r.status_code == 503
+
+
+async def test_gate_with_unset_jwt_secret_is_503_not_401(client):
+    app.dependency_overrides[get_settings] = lambda: Settings(admin_password="letmein", admin_jwt_secret="")
+    r = await client.get("/api/cloud-connections", headers={"Authorization": "Bearer anything"})
+    assert r.status_code == 503

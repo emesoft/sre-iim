@@ -17,6 +17,10 @@ _DEFAULT_TTL_SECONDS = 8 * 60 * 60  # 8 hours
 
 
 def create_admin_token(secret: str, ttl_seconds: int = _DEFAULT_TTL_SECONDS) -> str:
+    if not secret:
+        # Refuse to issue: an empty secret makes every token forgeable by anyone who can compute
+        # HMAC-SHA256 with an empty key — the signing scheme is public (open-source) code.
+        raise ValueError("ADMIN_JWT_SECRET is not set")
     expires_at = int(time.time()) + ttl_seconds
     payload = f"admin:{expires_at}"
     signature = _sign(payload, secret)
@@ -25,6 +29,10 @@ def create_admin_token(secret: str, ttl_seconds: int = _DEFAULT_TTL_SECONDS) -> 
 
 
 def verify_admin_token(token: str, secret: str) -> bool:
+    if not secret:
+        # Defense in depth: never accept ANY token when the secret is unset, even one an attacker
+        # forged directly with an empty-string key (bypassing create_admin_token's own guard).
+        return False
     try:
         encoded_payload, signature = token.split(".", 1)
         payload = base64.urlsafe_b64decode(encoded_payload.encode()).decode()

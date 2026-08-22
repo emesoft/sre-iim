@@ -260,7 +260,14 @@ def require_admin(
 ) -> None:
     """Gate for the Settings-page endpoints (cloud connections + the Claude Code token) — a single
     shared admin password, not a per-user account system. Raises 401 on any missing/invalid/
-    expired token so FastAPI never resolves the route body."""
+    expired token so FastAPI never resolves the route body; 503 if ADMIN_JWT_SECRET is unset — a
+    server misconfiguration, not a login failure, and admin_auth.verify_admin_token would
+    otherwise silently reject every token, masking the real problem as "wrong session"."""
+    if not settings.admin_jwt_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="admin gate is misconfigured: ADMIN_JWT_SECRET is not set",
+        )
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ")
