@@ -11,7 +11,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
-from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident, LogEvent
+from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident, LogEvent, UsageByModel
 from app.domain.shared import Clock, UnitOfWork  # re-exported for existing imports
 
 if TYPE_CHECKING:
@@ -76,6 +76,11 @@ class IncidentRepository(Protocol):
     async def add_analysis(self, analysis: Analysis) -> Analysis: ...
 
     async def latest_analysis(self, incident_id: uuid.UUID) -> Analysis | None: ...
+
+    async def usage_by_model(self) -> list[UsageByModel]:
+        """Real LLM token spend grouped by `model_id` — cache HITs and untracked providers
+        (input_tokens IS NULL) are excluded. Backs the Settings-page usage summary."""
+        ...
 
     async def set_status(self, incident_id: uuid.UUID, status: str) -> None: ...
 

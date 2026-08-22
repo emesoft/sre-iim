@@ -32,7 +32,7 @@ async def test_analyzer_returns_a_draft_from_the_cli_response(monkeypatch):
 
     async def fake_call(*, prompt, system_prompt, model, token):
         calls.append({"prompt": prompt, "system_prompt": system_prompt, "model": model, "token": token})
-        return _ANALYSIS_JSON
+        return claude_cli._CliResult(text=_ANALYSIS_JSON, input_tokens=120, output_tokens=45)
 
     async def fake_get_token(settings):
         return "test-token"
@@ -45,6 +45,8 @@ async def test_analyzer_returns_a_draft_from_the_cli_response(monkeypatch):
 
     assert draft.severity == "high"
     assert draft.model_id == "claude-cli:sonnet"
+    assert draft.input_tokens == 120
+    assert draft.output_tokens == 45
     assert len(calls) == 1
     assert calls[0]["model"] == "sonnet"
     assert calls[0]["token"] == "test-token"
@@ -53,7 +55,7 @@ async def test_analyzer_returns_a_draft_from_the_cli_response(monkeypatch):
 
 async def test_analyzer_raises_analysis_error_on_bad_json(monkeypatch):
     async def fake_call(**_kwargs):
-        return "not json"
+        return claude_cli._CliResult(text="not json", input_tokens=None, output_tokens=None)
 
     async def fake_get_token(settings):
         return "test-token"
@@ -81,7 +83,7 @@ async def test_chat_model_returns_the_cli_result_text(monkeypatch):
     async def fake_call(*, prompt, system_prompt, model, token):
         assert prompt == "user question"
         assert system_prompt == "be terse"
-        return "42"
+        return claude_cli._CliResult(text="42", input_tokens=10, output_tokens=2)
 
     async def fake_get_token(settings):
         return "test-token"
@@ -122,6 +124,55 @@ async def test_verify_reports_the_cli_error_when_the_token_is_invalid(monkeypatc
     ok, error = await verify_claude_cli_token(_settings())
     assert ok is False
     assert "401" in error
+
+
+async def test_call_claude_cli_parses_usage_from_the_subprocess_json(monkeypatch):
+    payload = (
+        '{"result": "hello", "is_error": false, '
+        '"usage": {"input_tokens": 300, "output_tokens": 80}}'
+    )
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            return payload.encode(), b""
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    result = await claude_cli._call_claude_cli(
+        prompt="p", system_prompt=None, model="sonnet", token="t"
+    )
+
+    assert result.text == "hello"
+    assert result.input_tokens == 300
+    assert result.output_tokens == 80
+
+
+async def test_call_claude_cli_tolerates_a_missing_usage_field(monkeypatch):
+    payload = '{"result": "hello", "is_error": false}'
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            return payload.encode(), b""
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    result = await claude_cli._call_claude_cli(
+        prompt="p", system_prompt=None, model="sonnet", token="t"
+    )
+
+    assert result.text == "hello"
+    assert result.input_tokens is None
+    assert result.output_tokens is None
 
 
 async def test_verify_reports_when_no_token_is_configured(monkeypatch):

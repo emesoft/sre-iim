@@ -69,6 +69,8 @@ class AnalysisRow(Base):
         UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
     )
     known_issue_similarity: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = _utcnow_column()
 
 

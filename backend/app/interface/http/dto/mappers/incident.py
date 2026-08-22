@@ -53,6 +53,8 @@ def analysis_out(analysis: Analysis, evidence: Sequence[EvidenceRef] | None = No
             if analysis.known_issue_incident_id is not None
             else None
         ),
+        input_tokens=analysis.input_tokens,
+        output_tokens=analysis.output_tokens,
     )
 
 

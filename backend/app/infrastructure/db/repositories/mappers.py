@@ -40,6 +40,8 @@ def analysis_to_domain(row: AnalysisRow) -> Analysis:
         known_issue_similarity=(
             float(row.known_issue_similarity) if row.known_issue_similarity is not None else None
         ),
+        input_tokens=row.input_tokens,
+        output_tokens=row.output_tokens,
         id=row.id,
         created_at=row.created_at,
     )

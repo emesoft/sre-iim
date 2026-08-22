@@ -7,13 +7,14 @@ tests the settings endpoints' own behavior, not the gate.
 """
 
 import os
+import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.infrastructure.db.orm import AppSettingRow, Base
+from app.infrastructure.db.orm import AnalysisRow, AppSettingRow, Base, IncidentRow
 from app.infrastructure.security.encryptor import Encryptor
 from app.interface.http.deps import get_encryptor, get_session, require_admin
 from app.main import app
@@ -40,6 +41,8 @@ async def client():
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with maker() as s:
         await s.execute(delete(AppSettingRow))
+        await s.execute(delete(AnalysisRow))
+        await s.execute(delete(IncidentRow))
         await s.commit()
 
     async def _override_session():
@@ -52,10 +55,35 @@ async def client():
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
+        c.session_maker = maker  # type: ignore[attr-defined] - test-only escape hatch
         yield c
 
     app.dependency_overrides.clear()
     await engine.dispose()
+
+
+async def _seed_analysis(
+    client, *, model_id: str, cache_state: str, input_tokens: int | None, output_tokens: int | None
+) -> None:
+    """Insert an incident + analysis directly — the llm-usage aggregate reads straight off the
+    `analyses` table, so this exercises the query without re-running the full ingest pipeline."""
+    async with client.session_maker() as s:
+        incident_id = uuid.uuid4()
+        s.add(
+            IncidentRow(
+                id=incident_id, service="GCM", source="manual", fingerprint=str(uuid.uuid4()),
+                context={}, status="analyzed",
+            )
+        )
+        await s.flush()
+        s.add(
+            AnalysisRow(
+                incident_id=incident_id, severity="critical", summary="s", root_cause="r",
+                recommended_action="a", cache_state=cache_state, model_id=model_id,
+                input_tokens=input_tokens, output_tokens=output_tokens,
+            )
+        )
+        await s.commit()
 
 
 async def test_claude_token_is_not_set_by_default(client):
@@ -109,3 +137,40 @@ async def test_test_endpoint_reports_the_failure_reason(client, monkeypatch):
     body = r.json()
     assert body["ok"] is False
     assert "401" in body["error"]
+
+
+async def test_llm_usage_is_empty_with_no_analyses(client):
+    r = await client.get("/api/settings/llm-usage")
+    assert r.status_code == 200
+    assert r.json() == {"total_input_tokens": 0, "total_output_tokens": 0, "by_model": []}
+
+
+async def test_llm_usage_sums_real_spend_grouped_by_model(client):
+    await _seed_analysis(
+        client, model_id="claude-cli:sonnet", cache_state="MISS", input_tokens=100, output_tokens=50
+    )
+    await _seed_analysis(
+        client, model_id="claude-cli:sonnet", cache_state="MISS", input_tokens=200, output_tokens=80
+    )
+    # A cache HIT: no LLM call was made, must not add to the total.
+    await _seed_analysis(
+        client, model_id="claude-cli:sonnet", cache_state="HIT", input_tokens=0, output_tokens=0
+    )
+    # A provider that doesn't report usage: must be excluded, not counted as 0.
+    await _seed_analysis(
+        client, model_id="bedrock:haiku", cache_state="MISS", input_tokens=None, output_tokens=None
+    )
+
+    r = await client.get("/api/settings/llm-usage")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total_input_tokens"] == 300
+    assert body["total_output_tokens"] == 130
+    assert body["by_model"] == [
+        {
+            "model_id": "claude-cli:sonnet",
+            "input_tokens": 300,
+            "output_tokens": 130,
+            "analyses_count": 2,
+        }
+    ]

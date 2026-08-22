@@ -64,6 +64,10 @@ class AnalysisDraft:
     # known-issue similarity threshold — "we've seen this before, here's how it was fixed".
     known_issue_incident_id: uuid.UUID | None = None
     known_issue_similarity: float | None = None
+    # Only populated by providers that report usage (currently claude_cli). None means "not
+    # tracked for this provider", not "zero tokens used" — do not treat as 0 in aggregates.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 @dataclass
@@ -81,5 +85,20 @@ class Analysis:
     evidence_chunk_ids: list[uuid.UUID] = field(default_factory=list)
     known_issue_incident_id: uuid.UUID | None = None
     known_issue_similarity: float | None = None
+    # See AnalysisDraft — None means untracked for this provider; a cache HIT is explicitly 0
+    # (no LLM call was made), never a copy of the original MISS's token count.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class UsageByModel:
+    """Total tracked LLM token usage for one `model_id`, real-spend only: cache HITs (no LLM call)
+    and providers that don't report usage (input_tokens IS NULL) are excluded, not zeroed in."""
+
+    model_id: str
+    input_tokens: int
+    output_tokens: int
+    analyses_count: int

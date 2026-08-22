@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.incidents.entities import Analysis, Incident
+from app.domain.incidents.entities import Analysis, Incident, UsageByModel
 from app.infrastructure.db.orm import AnalysisCacheRow, AnalysisRow, IncidentRow
 from app.infrastructure.db.repositories.mappers import analysis_to_domain, incident_to_domain
 
@@ -94,6 +94,8 @@ class SqlAlchemyIncidentRepository:
             evidence_chunk_ids=list(analysis.evidence_chunk_ids),
             known_issue_incident_id=analysis.known_issue_incident_id,
             known_issue_similarity=analysis.known_issue_similarity,
+            input_tokens=analysis.input_tokens,
+            output_tokens=analysis.output_tokens,
         )
         self._s.add(row)
         await self._s.flush()
@@ -108,6 +110,25 @@ class SqlAlchemyIncidentRepository:
             .limit(1)
         )
         return analysis_to_domain(row) if row is not None else None
+
+    async def usage_by_model(self) -> list[UsageByModel]:
+        stmt = (
+            select(
+                AnalysisRow.model_id,
+                func.sum(AnalysisRow.input_tokens),
+                func.sum(AnalysisRow.output_tokens),
+                func.count(),
+            )
+            .where(AnalysisRow.cache_state == "MISS", AnalysisRow.input_tokens.is_not(None))
+            .group_by(AnalysisRow.model_id)
+        )
+        rows = (await self._s.execute(stmt)).all()
+        return [
+            UsageByModel(
+                model_id=model_id, input_tokens=int(i or 0), output_tokens=int(o or 0), analyses_count=c
+            )
+            for model_id, i, o, c in rows
+        ]
 
     async def set_status(self, incident_id: uuid.UUID, status: str) -> None:
         row = await self._s.get(IncidentRow, incident_id)

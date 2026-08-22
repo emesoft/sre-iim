@@ -35,6 +35,9 @@ class AnalysisOut(BaseModel):
     cache_state: str = Field(serialization_alias="_cache")  # HIT | MISS
     evidence: list[dict] = Field(default_factory=list)
     known_issue: KnownIssueOut | None = None
+    # None means "not tracked for this provider" (Bedrock/DeepSeek); a cache HIT is explicitly 0.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class IncidentSummary(BaseModel):

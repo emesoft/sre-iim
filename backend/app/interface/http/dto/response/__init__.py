@@ -19,7 +19,7 @@ from app.interface.http.dto.response.incident import (
     LogSearchResult,
 )
 from app.interface.http.dto.response.report import DailyReportOut, ReportIncidentOut
-from app.interface.http.dto.response.settings import SettingStatus
+from app.interface.http.dto.response.settings import LlmUsageOut, SettingStatus, UsageByModelOut
 
 __all__ = [
     "IncidentCreatedResponse",
@@ -39,5 +39,7 @@ __all__ = [
     "PollResult",
     "PollScheduleOut",
     "SettingStatus",
+    "LlmUsageOut",
+    "UsageByModelOut",
     "AdminLoginResponse",
 ]

@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+from dataclasses import dataclass
 
 from app.domain.documents.entities import RetrievedChunk
 from app.domain.incidents.entities import AnalysisDraft
@@ -51,9 +52,19 @@ async def _get_token(settings: Settings) -> str:
     return Encryptor(settings.secret_encryption_key).decrypt(encrypted)
 
 
-async def _call_claude_cli(*, prompt: str, system_prompt: str | None, model: str, token: str) -> str:
+@dataclass(frozen=True)
+class _CliResult:
+    text: str
+    input_tokens: int | None
+    output_tokens: int | None
+
+
+async def _call_claude_cli(
+    *, prompt: str, system_prompt: str | None, model: str, token: str
+) -> _CliResult:
     """Run `claude -p` headless, authenticated via CLAUDE_CODE_OAUTH_TOKEN, and return the
-    response text. Raises RuntimeError on any CLI-reported failure (auth, rate limit, bad model)."""
+    response text plus token usage. Raises RuntimeError on any CLI-reported failure (auth, rate
+    limit, bad model)."""
     cmd = ["claude", "-p", prompt, "--output-format", "json", "--tools", "", "--safe-mode", "--model", model]
     if system_prompt:
         cmd.extend(["--append-system-prompt", system_prompt])
@@ -80,7 +91,12 @@ async def _call_claude_cli(*, prompt: str, system_prompt: str | None, model: str
         detail = data.get("result") or stderr.decode(errors="replace") or "unknown error"
         raise RuntimeError(f"claude CLI failed: {detail}")
 
-    return data["result"]
+    usage = data.get("usage") or {}
+    return _CliResult(
+        text=data["result"],
+        input_tokens=usage.get("input_tokens"),
+        output_tokens=usage.get("output_tokens"),
+    )
 
 
 async def verify_claude_cli_token(settings: Settings) -> tuple[bool, str | None]:
@@ -109,14 +125,19 @@ class ClaudeCliAnalyzer:
     ) -> AnalysisDraft:
         token = await _get_token(self._settings)
         system_prompt = SYSTEM_PROMPT + (RETRIEVED_KNOWLEDGE_RULES if evidence else "")
-        content = await _call_claude_cli(
+        result = await _call_claude_cli(
             prompt=build_user_message(context, evidence),
             system_prompt=system_prompt,
             model=self._settings.claude_cli_model,
             token=token,
         )
-        parsed = parse_analysis(content)
-        return AnalysisDraft(model_id=f"claude-cli:{self._settings.claude_cli_model}", **parsed)
+        parsed = parse_analysis(result.text)
+        return AnalysisDraft(
+            model_id=f"claude-cli:{self._settings.claude_cli_model}",
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            **parsed,
+        )
 
 
 class ClaudeCliChatModel:
@@ -129,6 +150,7 @@ class ClaudeCliChatModel:
 
     async def complete(self, system: str, user: str, *, tier: Tier = "main") -> str:
         token = await _get_token(self._settings)
-        return await _call_claude_cli(
+        result = await _call_claude_cli(
             prompt=user, system_prompt=system, model=self._settings.claude_cli_model, token=token
         )
+        return result.text
