@@ -188,6 +188,28 @@ async def test_list_headline_extracts_quoted_alarm_name_from_alert(client):
     assert item["headline"] == "ecs-easyrx-prod-svc-AlarmLow"
 
 
+async def test_list_headline_strips_cluster_prefix_and_uuid_suffix(client):
+    r = await client.post(
+        "/api/incidents",
+        json={
+            "source": "cloudwatch_alarm",
+            "context": {
+                "service": "rxdevs",
+                "alert": (
+                    "CloudWatch alarm 'TargetTracking-service/ecs-easyrx-prod-cluster/"
+                    "ecs-easyrx-prod-rocketshipit-svc-AlarmLow-b90a64fc-e73f-47a9-89b2-"
+                    "89aacf4fe5c1' is in ALARM state: Threshold Crossed."
+                ),
+            },
+        },
+    )
+    assert r.status_code == 201
+
+    r = await client.get("/api/incidents")
+    item = next(i for i in r.json() if i["source"] == "cloudwatch_alarm")
+    assert item["headline"] == "ecs-easyrx-prod-rocketshipit-svc-AlarmLow"
+
+
 async def test_list_headline_is_null_without_an_alert(client):
     r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
     assert r.status_code == 201

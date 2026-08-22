@@ -16,6 +16,12 @@ from app.interface.http.dto.response.incident import (
 
 _HEADLINE_MAX_LEN = 80
 _QUOTED = re.compile(r"'([^']+)'")
+# CloudWatch auto-generates alarm names like
+# "TargetTracking-service/<cluster>/<service>-AlarmLow-b90a64fc-e73f-47a9-89b2-89aacf4fe5c1" — the
+# leading "policy-type/cluster/" prefix and trailing UUID are noise for a list headline.
+_UUID_SUFFIX = re.compile(
+    r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
 
 
 def _headline(context: dict) -> str | None:
@@ -29,6 +35,8 @@ def _headline(context: dict) -> str | None:
         return None
     match = _QUOTED.search(str(alert))
     text = match.group(1) if match else str(alert)
+    text = text.rsplit("/", 1)[-1]
+    text = _UUID_SUFFIX.sub("", text)
     return text if len(text) <= _HEADLINE_MAX_LEN else text[: _HEADLINE_MAX_LEN - 1] + "…"
 
 
