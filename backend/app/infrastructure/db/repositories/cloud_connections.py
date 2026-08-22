@@ -52,6 +52,20 @@ class SqlAlchemyCloudConnectionRepository:
             await self._s.delete(row)
             await self._s.flush()
 
+    async def update(self, connection: CloudConnection) -> CloudConnection:
+        row = await self._s.get(CloudConnectionRow, connection.id)
+        if row is None:
+            raise ValueError(f"connection {connection.id} not found")
+        row.project = connection.project
+        row.env = connection.env
+        row.region = connection.region
+        row.auth_type = connection.auth_type
+        row.sso_profile_name = connection.sso_profile_name
+        row.encrypted_access_key_id = connection.encrypted_access_key_id
+        row.encrypted_secret_access_key = connection.encrypted_secret_access_key
+        await self._s.flush()
+        return cloud_connection_to_domain(row)
+
     async def record_poll_result(
         self, connection_id: uuid.UUID, *, status: str, error: str | None
     ) -> None:

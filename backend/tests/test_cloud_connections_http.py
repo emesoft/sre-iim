@@ -198,3 +198,80 @@ async def test_poll_endpoint_creates_incident_from_alarming_connection(client):
     # no LLM call/session is even needed at poll time.
     r = await client.get(f"/api/incidents/{incident_id}")
     assert r.json()["status"] == "new"
+
+
+async def test_update_connection_changes_region(client):
+    r = await client.post(
+        "/api/cloud-connections",
+        json={"project": "GCM", "env": "prod", "region": "us-east-1", "auth_type": "sso", "sso_profile_name": "p"},
+    )
+    connection_id = r.json()["id"]
+
+    r = await client.patch(
+        f"/api/cloud-connections/{connection_id}",
+        json={"project": "GCM", "env": "prod", "region": "ap-southeast-1", "auth_type": "sso", "sso_profile_name": "p"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["region"] == "ap-southeast-1"
+
+    r = await client.get("/api/cloud-connections")
+    assert r.json()[0]["region"] == "ap-southeast-1"
+
+
+async def test_update_access_key_connection_without_new_secret_keeps_existing_credentials(client):
+    r = await client.post(
+        "/api/cloud-connections",
+        json={
+            "project": "GCM", "env": "dev", "region": "us-east-1", "auth_type": "access_key",
+            "access_key_id": "AKIAORIGINAL", "secret_access_key": "original-secret",
+        },
+    )
+    connection_id = r.json()["id"]
+
+    r = await client.patch(
+        f"/api/cloud-connections/{connection_id}",
+        json={"project": "GCM", "env": "dev", "region": "ap-southeast-1", "auth_type": "access_key"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["region"] == "ap-southeast-1"
+    assert body["has_access_key"] is True  # unchanged, not cleared
+
+
+async def test_update_404_for_unknown_connection(client):
+    r = await client.patch(
+        "/api/cloud-connections/00000000-0000-0000-0000-000000000000",
+        json={"project": "GCM", "env": "prod", "region": "us-east-1", "auth_type": "sso", "sso_profile_name": "p"},
+    )
+    assert r.status_code == 404
+
+
+async def test_poll_one_only_polls_that_connection(client):
+    r1 = await client.post(
+        "/api/cloud-connections",
+        json={"project": "GCM", "env": "prod", "region": "us-east-1", "auth_type": "sso", "sso_profile_name": "p1"},
+    )
+    connection_1 = r1.json()["id"]
+    r2 = await client.post(
+        "/api/cloud-connections",
+        json={"project": "EVP", "env": "dev", "region": "us-west-2", "auth_type": "sso", "sso_profile_name": "p2"},
+    )
+    connection_2 = r2.json()["id"]
+
+    app.dependency_overrides[get_alarm_fetcher] = lambda: _FakeFetcher(
+        alarms=[AlarmState(arn="arn:1", name="cpu-high", state="ALARM")]
+    )
+
+    r = await client.post(f"/api/cloud-connections/{connection_1}/poll")
+    assert r.status_code == 200, r.text
+    assert r.json() == {"polled": 1}
+
+    r = await client.get("/api/cloud-connections")
+    by_id = {c["id"]: c for c in r.json()}
+    assert by_id[connection_1]["last_poll_status"] == "ok"
+    assert by_id[connection_2]["last_poll_status"] is None  # untouched
+
+
+async def test_poll_one_404_for_unknown_connection(client):
+    r = await client.post("/api/cloud-connections/00000000-0000-0000-0000-000000000000/poll")
+    assert r.status_code == 404

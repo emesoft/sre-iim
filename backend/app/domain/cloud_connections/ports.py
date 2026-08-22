@@ -24,6 +24,12 @@ class CloudConnectionRepository(Protocol):
 
     async def delete(self, connection_id: uuid.UUID) -> None: ...
 
+    async def update(self, connection: CloudConnection) -> CloudConnection:
+        """Persist a full replacement of an existing connection's editable fields (project, env,
+        region, auth_type, sso_profile_name, encrypted credentials). `connection.id` selects the
+        row; poll-tracking fields (last_poll_*) are untouched."""
+        ...
+
     async def record_poll_result(
         self, connection_id: uuid.UUID, *, status: str, error: str | None
     ) -> None:

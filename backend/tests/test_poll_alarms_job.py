@@ -20,6 +20,9 @@ class FakeConnectionRepo:
         self._connections = {c.id: c for c in connections}
         self.poll_results = []
 
+    async def get(self, connection_id):
+        return self._connections.get(connection_id)
+
     async def list(self):
         return list(self._connections.values())
 
@@ -196,3 +199,33 @@ async def test_resolve_failure_for_one_connection_does_not_stop_the_others():
     # ...and the good connection is still polled and creates its incident.
     assert len(ingest.calls) == 1
     assert any(cid == good.id and status == "ok" for cid, status, _ in connections.poll_results)
+
+
+async def test_run_with_a_connection_id_only_polls_that_connection():
+    """The per-connection Refresh button (POST /api/cloud-connections/{id}/poll) must not touch
+    other connections, even if they'd otherwise create/resolve incidents."""
+    target = _connection()
+    other = _connection()
+    fetcher = FakeFetcher({
+        target.id: [AlarmState(arn="arn:1", name="cpu-high", state="ALARM")],
+        other.id: [AlarmState(arn="arn:2", name="mem-high", state="ALARM")],
+    })
+    connections = FakeConnectionRepo([target, other])
+    ingest = FakeIngest()
+    job = PollAlarmsJob(
+        connections=connections, tracked=FakeTrackedAlarmRepo(), fetcher=fetcher,
+        ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
+    )
+    await job.run(connection_id=target.id)
+    assert len(ingest.calls) == 1
+    assert connections.poll_results == [(target.id, "ok", None)]
+
+
+async def test_run_with_an_unknown_connection_id_is_a_noop():
+    connections = FakeConnectionRepo([])
+    job = PollAlarmsJob(
+        connections=connections, tracked=FakeTrackedAlarmRepo(), fetcher=FakeFetcher({}),
+        ingest=FakeIngest(), resolve=FakeResolve(), uow=FakeUnitOfWork(),
+    )
+    await job.run(connection_id=uuid.uuid4())
+    assert connections.poll_results == []

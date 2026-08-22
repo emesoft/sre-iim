@@ -57,6 +57,36 @@ async def list_connections(
     return [mappers.cloud_connection_out(c) for c in connections]
 
 
+@router.patch("/{connection_id}", response_model=CloudConnectionOut)
+async def update_connection(
+    connection_id: uuid.UUID,
+    body: CloudConnectionCreateRequest,
+    manager: ManageCloudConnections = Depends(get_manage_cloud_connections),
+) -> CloudConnectionOut:
+    """Edit project/env/region/auth for an existing connection. For auth_type="access_key",
+    leaving access_key_id/secret_access_key blank keeps the currently-stored credentials."""
+    if body.auth_type not in _AUTH_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"auth_type must be one of {sorted(_AUTH_TYPES)}",
+        )
+    if body.auth_type == "sso" and not body.sso_profile_name:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="sso_profile_name is required when auth_type is 'sso'",
+        )
+    try:
+        connection = await manager.update(
+            connection_id,
+            project=body.project, env=body.env, region=body.region, auth_type=body.auth_type,
+            sso_profile_name=body.sso_profile_name, access_key_id=body.access_key_id,
+            secret_access_key=body.secret_access_key,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return mappers.cloud_connection_out(connection)
+
+
 @router.delete("/{connection_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_connection(
     connection_id: uuid.UUID,
@@ -82,3 +112,15 @@ async def poll_all(job: PollAlarmsJob = Depends(get_poll_alarms_job)) -> PollRes
     connections = await job.connections.list()
     await job.run()
     return PollResult(polled=len(connections))
+
+
+@router.post("/{connection_id}/poll", response_model=PollResult)
+async def poll_one(
+    connection_id: uuid.UUID, job: PollAlarmsJob = Depends(get_poll_alarms_job)
+) -> PollResult:
+    """Per-row "Refresh" button on the Settings page — polls just this connection."""
+    connection = await job.connections.get(connection_id)
+    if connection is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="connection not found")
+    await job.run(connection_id=connection_id)
+    return PollResult(polled=1)

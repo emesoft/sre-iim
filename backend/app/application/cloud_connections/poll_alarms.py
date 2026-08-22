@@ -13,6 +13,7 @@ analyzes immediately — that's an explicit user action already, unlike an alarm
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 
 from app.application.incidents.ingest import IngestIncident
@@ -45,8 +46,17 @@ class PollAlarmsJob:
     resolve: ResolveIncident
     uow: UnitOfWork
 
-    async def run(self) -> None:
-        for connection in await self.connections.list():
+    async def run(self, *, connection_id: uuid.UUID | None = None) -> None:
+        """Poll every connection, or just one (the per-row "Refresh" button on the Settings
+        page — `POST /api/cloud-connections/{id}/poll`). An unknown connection_id is a no-op:
+        the router layer is responsible for 404ing before calling this."""
+        if connection_id is not None:
+            connection = await self.connections.get(connection_id)
+            connections = [connection] if connection is not None else []
+        else:
+            connections = await self.connections.list()
+
+        for connection in connections:
             try:
                 alarms = await self.fetcher.list_alarms(connection)
                 for alarm in alarms:
