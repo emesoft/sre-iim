@@ -194,6 +194,14 @@ and why, not a long Summary/Test-plan write-up.
   (not written yet, so the folder is currently empty). `docker-compose.yml` moved to the repo root,
   alongside `backend/` and `frontend/`, so `docker compose up` needs no `-f` flag.
 - **Auth** — the frontend `Login` page is UI-only today, no backend auth wired up yet.
+- **AWS SSO connect-in-app** — cloud connections currently require an SSO profile pre-configured on
+  the host's `~/.aws/config` (login via `aws sso login --profile <name>` outside the app), or a
+  pasted access key. A future "Connect via SSO" button could drive the AWS SSO OIDC device-
+  authorization flow directly from Settings (open a verification URL, poll for the token, list
+  accounts/roles to pick from, store + auto-refresh the token) — technically sound (this is exactly
+  how `aws sso login` itself works, no AWS ToS concern), but a real subsystem: short-lived tokens
+  need refresh handling, and picking an account/role needs new UI. Scope it as its own
+  brainstorm/spec/plan when actually needed.
 
 The full Phase-1 design (problem/goals, architecture + ADRs, DynamoDB data model, build plan, open
 questions) is written up in `.claude/specs/`: `SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `PLAN.md`,
