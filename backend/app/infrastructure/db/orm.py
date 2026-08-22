@@ -120,3 +120,37 @@ class UserRow(Base):
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider: Mapped[str] = mapped_column(Text, nullable=False)  # google | microsoft
     created_at: Mapped[datetime] = _utcnow_column()
+
+
+class CloudConnectionRow(Base):
+    __tablename__ = "cloud_connections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project: Mapped[str] = mapped_column(Text, nullable=False)
+    env: Mapped[str] = mapped_column(Text, nullable=False)
+    cloud: Mapped[str] = mapped_column(Text, nullable=False, default="aws")
+    region: Mapped[str] = mapped_column(Text, nullable=False)
+    auth_type: Mapped[str] = mapped_column(Text, nullable=False)  # sso | access_key
+    sso_profile_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_key_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_secret_access_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_poll_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_poll_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
+class TrackedAlarmRow(Base):
+    __tablename__ = "tracked_alarms"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cloud_connections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    alarm_arn: Mapped[str] = mapped_column(Text, nullable=False)
+    alarm_name: Mapped[str] = mapped_column(Text, nullable=False)
+    last_state: Mapped[str] = mapped_column(Text, nullable=False)  # OK | ALARM
+    incident_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = _utcnow_column()
