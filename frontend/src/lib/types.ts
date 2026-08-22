@@ -121,3 +121,37 @@ export interface DailyReportOut {
   incidents: ReportIncidentOut[]
   slack_markdown: string
 }
+
+export interface CloudConnection {
+  id: string
+  project: string
+  env: string
+  cloud: string
+  region: string
+  auth_type: 'sso' | 'access_key'
+  sso_profile_name: string | null
+  has_access_key: boolean
+  last_poll_at: string | null
+  last_poll_status: 'ok' | 'error' | null
+  last_poll_error: string | null
+  created_at: string
+}
+
+export interface CloudConnectionCreate {
+  project: string
+  env: string
+  region: string
+  auth_type: 'sso' | 'access_key'
+  sso_profile_name?: string
+  access_key_id?: string
+  secret_access_key?: string
+}
+
+export interface TestConnectionResult {
+  ok: boolean
+  error: string | null
+}
+
+export interface PollResult {
+  polled: number
+}
