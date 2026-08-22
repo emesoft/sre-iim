@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     azdo_pat: str | None = None
     azdo_work_item_type: str = "Bug"
 
+    # --- Cloud connections (CloudWatch alarm polling) ---
+    secret_encryption_key: str = ""  # Fernet key (44-char urlsafe base64); required to store access keys
+    alarm_poll_interval_minutes: int = 60
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

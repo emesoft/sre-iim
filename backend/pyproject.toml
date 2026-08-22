@@ -21,6 +21,8 @@ dependencies = [
     "langgraph>=1.2.9",
     # CloudWatch Logs Insights log search (feature: on-demand log search from an incident).
     "boto3>=1.34",
+    "cryptography>=42.0",
+    "apscheduler>=3.10",
 ]
 
 [dependency-groups]
