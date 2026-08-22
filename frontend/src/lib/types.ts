@@ -134,6 +134,7 @@ export interface CloudConnection {
   last_poll_at: string | null
   last_poll_status: 'ok' | 'error' | null
   last_poll_error: string | null
+  last_poll_alarm_count: number | null
   created_at: string
 }
 
@@ -154,6 +155,13 @@ export interface TestConnectionResult {
 
 export interface PollResult {
   polled: number
+  alarm_count: number
+  errors: number
+}
+
+export interface PollSchedule {
+  interval_minutes: number
+  next_run_at: string | null
 }
 
 export interface SettingStatus {
