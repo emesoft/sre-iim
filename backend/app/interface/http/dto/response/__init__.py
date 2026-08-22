@@ -1,5 +1,10 @@
 """Outbound response DTOs, one module per resource."""
 
+from app.interface.http.dto.response.cloud_connection import (
+    CloudConnectionOut,
+    PollResult,
+    TestConnectionResult,
+)
 from app.interface.http.dto.response.document import DocumentCreatedResponse, DocumentSummary
 from app.interface.http.dto.response.health import HealthResponse
 from app.interface.http.dto.response.incident import (
@@ -26,4 +31,7 @@ __all__ = [
     "HealthResponse",
     "DailyReportOut",
     "ReportIncidentOut",
+    "CloudConnectionOut",
+    "TestConnectionResult",
+    "PollResult",
 ]
