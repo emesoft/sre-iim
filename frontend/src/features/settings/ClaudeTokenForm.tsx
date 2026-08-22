@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api, errText } from '../../lib/api'
-import type { SettingStatus } from '../../lib/types'
+import type { SettingStatus, TestConnectionResult } from '../../lib/types'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+
+const SETUP_TOKEN_COMMAND = 'claude setup-token'
 
 /**
  * Local-demo only: authenticates the `claude_cli` LLM provider with a Claude Code subscription
@@ -14,6 +16,9 @@ export function ClaudeTokenForm() {
   const [token, setToken] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<TestConnectionResult | null>(null)
+  const [copied, setCopied] = useState(false)
 
   const load = async () => {
     try {
@@ -34,11 +39,34 @@ export function ClaudeTokenForm() {
     try {
       await api.put('/api/settings/claude-token', { token })
       setToken('')
+      setTestResult(null)
       await load()
     } catch (e) {
       setError(errText(e))
     } finally {
       setSaving(false)
+    }
+  }
+
+  const runTest = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      setTestResult(await api.post<TestConnectionResult>('/api/settings/claude-token/test', {}))
+    } catch (e) {
+      setTestResult({ ok: false, error: errText(e) })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const copyCommand = async () => {
+    try {
+      await navigator.clipboard.writeText(SETUP_TOKEN_COMMAND)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // clipboard blocked (e.g. insecure context) — the command is still visible to copy by hand
     }
   }
 
@@ -68,7 +96,33 @@ export function ClaudeTokenForm() {
         <Button type="submit" disabled={saving}>
           {saving ? 'Saving…' : 'Save'}
         </Button>
+        {status?.is_set && (
+          <Button type="button" variant="ghost" disabled={testing} onClick={runTest}>
+            {testing ? 'Testing…' : 'Test'}
+          </Button>
+        )}
       </div>
+
+      {testResult?.ok === true && <p className="text-sm text-sev-low">Token works.</p>}
+
+      {testResult?.ok === false && (
+        <div className="flex flex-col gap-2 rounded-lg border border-hair bg-plane p-3">
+          <p className="text-sm text-sev-critical">
+            Token isn't working{testResult.error ? `: ${testResult.error}` : ''}. Get a new one:
+          </p>
+          <div className="flex items-center gap-2">
+            <code className="flex-1 rounded bg-surface p-2 text-xs">{SETUP_TOKEN_COMMAND}</code>
+            <Button type="button" variant="ghost" onClick={copyCommand}>
+              {copied ? 'Copied!' : 'Copy'}
+            </Button>
+          </div>
+          <p className="text-xs text-muted">
+            Run this on the machine running <code>docker compose</code> — it opens a browser to sign
+            in, then prints a new token. Paste it above and Save.
+          </p>
+        </div>
+      )}
+
       {error && <p className="text-sm text-sev-critical">{error}</p>}
     </form>
   )
