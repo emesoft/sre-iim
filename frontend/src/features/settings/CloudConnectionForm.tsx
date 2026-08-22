@@ -2,19 +2,19 @@ import { useState } from 'react'
 import { api, errText } from '../../lib/api'
 import type { CloudConnection, CloudConnectionCreate } from '../../lib/types'
 import { Button } from '../../components/ui/Button'
+import { SelectOrOtherField } from './SelectOrOtherField'
 
 const KNOWN_PROJECTS = ['BEC', 'EVP', 'GCM', 'SmartSuite', 'IIM']
-const OTHER_PROJECT = '__other__'
+const KNOWN_ENVS = ['dev', 'qa', 'staging', 'prod']
+const KNOWN_REGIONS = ['us-east-1', 'us-east-2', 'us-west-2', 'ap-southeast-1']
 
 const inputCls =
   'mt-1 w-full rounded-lg border border-hair bg-plane p-2 text-sm text-ink outline-none focus:border-accent'
 
 export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnection) => void }) {
-  const [projectChoice, setProjectChoice] = useState<string>(KNOWN_PROJECTS[0])
-  const [customProject, setCustomProject] = useState('')
-  const project = projectChoice === OTHER_PROJECT ? customProject : projectChoice
-  const [env, setEnv] = useState('prod')
-  const [region, setRegion] = useState('ap-southeast-1')
+  const [project, setProject] = useState(KNOWN_PROJECTS[0])
+  const [env, setEnv] = useState(KNOWN_ENVS[3]) // prod
+  const [region, setRegion] = useState(KNOWN_REGIONS[3]) // ap-southeast-1
   const [authType, setAuthType] = useState<'sso' | 'access_key'>('sso')
   const [ssoProfileName, setSsoProfileName] = useState('')
   const [accessKeyId, setAccessKeyId] = useState('')
@@ -41,7 +41,6 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
       setSsoProfileName('')
       setAccessKeyId('')
       setSecretAccessKey('')
-      setCustomProject('')
     } catch (e) {
       setError(errText(e))
     } finally {
@@ -52,38 +51,9 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 rounded-2xl border border-hair bg-surface p-4">
       <div className="flex gap-3">
-        <label className="flex-1 text-sm text-ink-2">
-          Project
-          <select
-            value={projectChoice}
-            onChange={(e) => setProjectChoice(e.target.value)}
-            className={inputCls}
-          >
-            {KNOWN_PROJECTS.map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-            <option value={OTHER_PROJECT}>Other…</option>
-          </select>
-          {projectChoice === OTHER_PROJECT && (
-            <input
-              value={customProject}
-              onChange={(e) => setCustomProject(e.target.value)}
-              placeholder="Project name"
-              className={inputCls}
-              required
-            />
-          )}
-        </label>
-        <label className="flex-1 text-sm text-ink-2">
-          Env
-          <input value={env} onChange={(e) => setEnv(e.target.value)} className={inputCls} />
-        </label>
-        <label className="flex-1 text-sm text-ink-2">
-          Region
-          <input value={region} onChange={(e) => setRegion(e.target.value)} className={inputCls} />
-        </label>
+        <SelectOrOtherField label="Project" options={KNOWN_PROJECTS} value={project} onChange={setProject} />
+        <SelectOrOtherField label="Env" options={KNOWN_ENVS} value={env} onChange={setEnv} />
+        <SelectOrOtherField label="Region" options={KNOWN_REGIONS} value={region} onChange={setRegion} />
       </div>
 
       <div className="flex gap-4 text-sm text-ink-2">
