@@ -12,7 +12,7 @@ import {
   Ticket,
 } from 'lucide-react'
 import { api, errText, isUnreachable } from '../../lib/api'
-import type { IncidentDetail as Detail, LogSearchResult } from '../../lib/types'
+import type { IncidentCreated, IncidentDetail as Detail, LogSearchResult } from '../../lib/types'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -140,6 +140,12 @@ export function IncidentDetail({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {d.status === 'new' && (
+            <AnalyzeButton
+              incidentId={d.id}
+              onAnalyzeStarted={() => setD({ ...d, status: 'analyzing' })}
+            />
+          )}
           {a && !a.known_issue && !d.ticket_url && (
             <TicketButton incident={d} onTicketed={(next) => setD(next)} />
           )}
@@ -174,7 +180,22 @@ export function IncidentDetail({
       )}
 
       {/* Analysis */}
-      {analyzing && !stream.result && !stream.error ? (
+      {d.status === 'new' ? (
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={15} className="text-sev-medium" />
+            <h3 className="font-display text-sm font-bold text-ink">Alarm fired — not analyzed yet</h3>
+          </div>
+          <p className="mt-3 whitespace-pre-wrap text-sm text-ink-2">
+            {typeof d.context.alert === 'string' ? d.context.alert : 'No alarm details in context.'}
+          </p>
+          <p className="mt-3 text-xs text-muted">
+            This incident was created automatically from a CloudWatch alarm and hasn't been sent to
+            the AI yet — review the raw alert above, then click "Analyze with AI" if you want a
+            root-cause analysis.
+          </p>
+        </Card>
+      ) : analyzing && !stream.result && !stream.error ? (
         <Card className="p-5">
           <div className="flex items-center gap-2">
             <Sparkles size={15} className="text-accent" />
@@ -281,6 +302,36 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
     <div className="px-5 py-4">
       <Eyebrow>{label}</Eyebrow>
       <p className="mt-1.5 leading-relaxed text-ink">{children}</p>
+    </div>
+  )
+}
+
+function AnalyzeButton({
+  incidentId,
+  onAnalyzeStarted,
+}: {
+  incidentId: string
+  onAnalyzeStarted: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const analyze = () => {
+    setLoading(true)
+    setErr(null)
+    api
+      .post<IncidentCreated>(`/api/incidents/${incidentId}/analyze`, {})
+      .then(onAnalyzeStarted)
+      .catch((e) => setErr(errText(e)))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button onClick={analyze} disabled={loading}>
+        <Sparkles size={15} /> {loading ? 'Starting…' : 'Analyze with AI'}
+      </Button>
+      {err && <p className="max-w-[220px] text-right text-xs text-sev-critical">{err}</p>}
     </div>
   )
 }
