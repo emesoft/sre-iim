@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { api, errText } from '../../lib/api'
 import type { CloudConnection, CloudConnectionCreate } from '../../lib/types'
 import { Button } from '../../components/ui/Button'
@@ -11,7 +11,18 @@ const KNOWN_REGIONS = ['us-east-1', 'us-east-2', 'us-west-2', 'ap-southeast-1']
 const inputCls =
   'mt-1 w-full rounded-lg border border-hair bg-plane p-2 text-sm text-ink outline-none focus:border-accent'
 
-export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnection) => void }) {
+export function CloudConnectionForm({
+  editing,
+  onCreated,
+  onUpdated,
+  onCancelEdit,
+}: {
+  /** When set, the form edits this connection (PATCH) instead of creating a new one (POST). */
+  editing?: CloudConnection | null
+  onCreated?: (c: CloudConnection) => void
+  onUpdated?: (c: CloudConnection) => void
+  onCancelEdit?: () => void
+}) {
   const [project, setProject] = useState(KNOWN_PROJECTS[0])
   const [env, setEnv] = useState(KNOWN_ENVS[3]) // prod
   const [region, setRegion] = useState(KNOWN_REGIONS[3]) // ap-southeast-1
@@ -21,6 +32,18 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
   const [secretAccessKey, setSecretAccessKey] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    if (!editing) return
+    setProject(editing.project)
+    setEnv(editing.env)
+    setRegion(editing.region)
+    setAuthType(editing.auth_type)
+    setSsoProfileName(editing.sso_profile_name ?? '')
+    setAccessKeyId('')
+    setSecretAccessKey('')
+    setError(null)
+  }, [editing])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -36,8 +59,13 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
         : { access_key_id: accessKeyId, secret_access_key: secretAccessKey }),
     }
     try {
-      const created = await api.post<CloudConnection>('/api/cloud-connections', body)
-      onCreated(created)
+      if (editing) {
+        const updated = await api.patch<CloudConnection>(`/api/cloud-connections/${editing.id}`, body)
+        onUpdated?.(updated)
+      } else {
+        const created = await api.post<CloudConnection>('/api/cloud-connections', body)
+        onCreated?.(created)
+      }
       setSsoProfileName('')
       setAccessKeyId('')
       setSecretAccessKey('')
@@ -50,6 +78,16 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-3 rounded-2xl border border-hair bg-surface p-4">
+      {editing && (
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-muted">
+            Editing {editing.project} / {editing.env}
+          </h3>
+          <Button type="button" variant="ghost" onClick={onCancelEdit}>
+            Cancel
+          </Button>
+        </div>
+      )}
       <div className="flex gap-3">
         <SelectOrOtherField label="Project" options={KNOWN_PROJECTS} value={project} onChange={setProject} />
         <SelectOrOtherField label="Env" options={KNOWN_ENVS} value={env} onChange={setEnv} />
@@ -89,8 +127,9 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
             <input
               value={accessKeyId}
               onChange={(e) => setAccessKeyId(e.target.value)}
+              placeholder={editing ? 'Leave blank to keep the current key' : ''}
               className={inputCls}
-              required
+              required={!editing}
             />
           </label>
           <label className="flex-1 text-sm text-ink-2">
@@ -99,8 +138,9 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
               type="password"
               value={secretAccessKey}
               onChange={(e) => setSecretAccessKey(e.target.value)}
+              placeholder={editing ? 'Leave blank to keep the current secret' : ''}
               className={inputCls}
-              required
+              required={!editing}
             />
           </label>
         </div>
@@ -108,7 +148,7 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
 
       {error && <p className="text-sm text-sev-critical">{error}</p>}
       <Button type="submit" disabled={submitting} className="self-start">
-        {submitting ? 'Adding…' : 'Add connection'}
+        {submitting ? 'Saving…' : editing ? 'Save changes' : 'Add connection'}
       </Button>
     </form>
   )

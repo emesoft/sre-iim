@@ -1,15 +1,19 @@
 import { useState } from 'react'
 import { api, errText } from '../../lib/api'
-import type { CloudConnection, TestConnectionResult } from '../../lib/types'
+import type { CloudConnection, PollResult, TestConnectionResult } from '../../lib/types'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
 
 export function CloudConnectionTable({
   rows,
   onDeleted,
+  onEdit,
+  onRefreshed,
 }: {
   rows: CloudConnection[]
   onDeleted: (id: string) => void
+  onEdit: (connection: CloudConnection) => void
+  onRefreshed: (connection: CloudConnection) => void
 }) {
   const [testResults, setTestResults] = useState<Record<string, TestConnectionResult>>({})
   const [busy, setBusy] = useState<string | null>(null)
@@ -31,6 +35,20 @@ export function CloudConnectionTable({
     try {
       await api.del(`/api/cloud-connections/${id}`)
       onDeleted(id)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  const refresh = async (connection: CloudConnection) => {
+    setBusy(connection.id)
+    try {
+      await api.post<PollResult>(`/api/cloud-connections/${connection.id}/poll`, {})
+      const updated = await api.get<CloudConnection[]>('/api/cloud-connections')
+      const fresh = updated.find((c) => c.id === connection.id)
+      if (fresh) onRefreshed(fresh)
+    } catch (e) {
+      setTestResults((prev) => ({ ...prev, [connection.id]: { ok: false, error: errText(e) } }))
     } finally {
       setBusy(null)
     }
@@ -71,8 +89,14 @@ export function CloudConnectionTable({
                 )}
               </td>
               <td className="flex items-center gap-2 py-2">
+                <Button variant="ghost" disabled={busy === c.id} onClick={() => refresh(c)}>
+                  Refresh
+                </Button>
                 <Button variant="ghost" disabled={busy === c.id} onClick={() => test(c.id)}>
                   Test
+                </Button>
+                <Button variant="ghost" disabled={busy === c.id} onClick={() => onEdit(c)}>
+                  Edit
                 </Button>
                 <Button variant="ghost" disabled={busy === c.id} onClick={() => remove(c.id)}>
                   Delete

@@ -92,6 +92,12 @@ export const api = {
     }).then((r) => handle<T>(r)),
   del: <T>(path: string): Promise<T> =>
     fetch(path, { method: 'DELETE', headers: authHeaders() }).then((r) => handle<T>(r)),
+  patch: <T>(path: string, body: unknown): Promise<T> =>
+    fetch(path, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
+      body: JSON.stringify(body),
+    }).then((r) => handle<T>(r)),
   put: <T>(path: string, body: unknown): Promise<T> =>
     fetch(path, {
       method: 'PUT',

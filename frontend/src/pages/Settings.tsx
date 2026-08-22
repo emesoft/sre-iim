@@ -20,6 +20,7 @@ function SettingsContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [editing, setEditing] = useState<CloudConnection | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -54,12 +55,20 @@ function SettingsContent() {
       <div className="animate-in flex flex-col gap-6">
         <ClaudeTokenForm />
 
-        <CloudConnectionForm onCreated={(c) => setConnections((prev) => [...prev, c])} />
+        <CloudConnectionForm
+          editing={editing}
+          onCreated={(c) => setConnections((prev) => [...prev, c])}
+          onUpdated={(c) => {
+            setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
+            setEditing(null)
+          }}
+          onCancelEdit={() => setEditing(null)}
+        />
 
         <div className="flex items-center justify-between">
           <h3 className="text-sm font-semibold text-muted">AWS connections</h3>
           <Button variant="ghost" disabled={refreshing} onClick={refreshNow}>
-            {refreshing ? 'Refreshing…' : 'Refresh now'}
+            {refreshing ? 'Refreshing…' : 'Refresh all'}
           </Button>
         </div>
 
@@ -69,6 +78,10 @@ function SettingsContent() {
           <CloudConnectionTable
             rows={connections}
             onDeleted={(id) => setConnections((prev) => prev.filter((c) => c.id !== id))}
+            onEdit={setEditing}
+            onRefreshed={(c) =>
+              setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
+            }
           />
         )}
       </div>
