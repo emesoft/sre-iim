@@ -88,6 +88,18 @@ class FakeUnitOfWork:
         pass
 
 
+class FakeAnalyzeInBackground:
+    """Stands in for the caller-provided closure that runs analysis on its own independent
+    session (see PollAlarmsJob.analyze_in_background) — just records the incident id it was
+    called with."""
+
+    def __init__(self):
+        self.calls = []
+
+    async def __call__(self, incident_id):
+        self.calls.append(incident_id)
+
+
 def _connection(**kw):
     return CloudConnection(
         id=uuid.uuid4(), project="GCM", env="prod", region="ap-southeast-1", auth_type="sso",
@@ -103,6 +115,7 @@ async def test_new_alarm_creates_an_incident():
     job = PollAlarmsJob(
         connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
+        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert len(ingest.calls) == 1
@@ -124,6 +137,7 @@ async def test_already_alarming_does_not_create_a_second_incident():
     job = PollAlarmsJob(
         connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
+        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert ingest.calls == []
@@ -143,6 +157,7 @@ async def test_recovered_alarm_auto_resolves_the_incident():
     job = PollAlarmsJob(
         connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
         ingest=FakeIngest(), resolve=resolve, uow=FakeUnitOfWork(),
+        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert resolve.calls == [(incident_id, resolve.calls[0][1])]
@@ -162,6 +177,7 @@ async def test_one_connection_error_does_not_stop_the_others():
     job = PollAlarmsJob(
         connections=connections, tracked=FakeTrackedAlarmRepo(), fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
+        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert len(ingest.calls) == 1  # good connection still processed
@@ -194,6 +210,7 @@ async def test_resolve_failure_for_one_connection_does_not_stop_the_others():
     job = PollAlarmsJob(
         connections=connections, tracked=tracked, fetcher=fetcher,
         ingest=ingest, resolve=resolve, uow=FakeUnitOfWork(),
+        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
 
@@ -210,12 +227,17 @@ async def test_analysis_runs_as_a_background_task_and_does_not_block_run():
     conn = _connection()
     fetcher = FakeFetcher({conn.id: [AlarmState(arn="arn:1", name="cpu-high", state="ALARM")]})
     ingest = FakeIngest()
+    tracked = FakeTrackedAlarmRepo()
+    analyze_in_background = FakeAnalyzeInBackground()
     job = PollAlarmsJob(
-        connections=FakeConnectionRepo([conn]), tracked=FakeTrackedAlarmRepo(), fetcher=fetcher,
+        connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
+        analyze_in_background=analyze_in_background,
     )
     await job.run()
     assert len(ingest.calls) == 1
-    # analyze_incident may not have run yet (it's a background task) - give the event loop a turn.
+    incident_id = (await tracked.get(conn.id, "arn:1")).incident_id
+    # analyze_in_background is fired as a background task, not awaited inline - give the event
+    # loop a turn so it actually runs before asserting.
     await asyncio.sleep(0)
-    assert len(ingest.analyze_calls) == 1
+    assert analyze_in_background.calls == [incident_id]

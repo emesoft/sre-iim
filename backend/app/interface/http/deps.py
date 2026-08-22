@@ -7,12 +7,13 @@ a disposable DB without calling Bedrock.
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.cloud_connections.manage import ManageCloudConnections
@@ -272,19 +273,48 @@ def get_manage_cloud_connections(
     )
 
 
+async def _analyze_incident_in_background(app: "FastAPI", incident_id: uuid.UUID) -> None:
+    """Runs one incident's analysis on a fresh, independent session (the request session that
+    built the PollAlarmsJob is closed by the time this background task runs — see the
+    session-lifecycle bug this closure fixes, `PollAlarmsJob.analyze_in_background`). Mirrors
+    `incidents.py`'s `_run_analysis`, minus the event-bus/SSE parts, which don't apply to alarm
+    polling."""
+    async with resolve_background_incident_deps(app) as deps:
+        incident = await deps.ingest.incidents.get(incident_id)
+        if incident is None:
+            return
+        try:
+            await deps.ingest.analyze_incident(incident)
+        except Exception:  # noqa: BLE001 - any analyzer failure surfaces as "failed", not silence
+            await deps.ingest.incidents.set_status(incident_id, "failed")
+            await deps.ingest.uow.commit()
+
+
 def get_poll_alarms_job(
+    request: Request,
     session: AsyncSession = Depends(get_session),
     fetcher: AlarmFetcher = Depends(get_alarm_fetcher),
     analyzer: Analyzer = Depends(get_analyzer),
     embedder: Embedder = Depends(get_embedder),
 ) -> PollAlarmsJob:
     """Manual-trigger path (`POST /api/cloud-connections/poll`). The scheduled path builds its own
-    job with an independent session — see `build_scheduled_poll_job` in main.py.
+    job with an independent session — see `_run_scheduled_poll` in main.py.
 
     `analyzer`/`embedder` are declared as `Depends(...)` (not called directly) so
     `app.dependency_overrides` actually reaches them in tests, same as every other use-case
-    factory in this file."""
+    factory in this file.
+
+    Takes `request: Request` (like `incidents.create_incident`) so `analyze_in_background` can
+    reuse `resolve_background_incident_deps(request.app)` for its own independent session —
+    preferred over hand-building a second session inline because it already honors
+    `app.dependency_overrides` for get_session/get_base_analyzer/get_embedder, so tests exercise
+    the same fakes the request path used."""
     settings = get_settings()
+    app = request.app
+
+    async def analyze_in_background(incident_id: uuid.UUID) -> None:
+        await _analyze_incident_in_background(app, incident_id)
+
     return PollAlarmsJob(
         connections=SqlAlchemyCloudConnectionRepository(session),
         tracked=SqlAlchemyTrackedAlarmRepository(session),
@@ -304,4 +334,5 @@ def get_poll_alarms_job(
             uow=SqlAlchemyUnitOfWork(session),
         ),
         uow=SqlAlchemyUnitOfWork(session),
+        analyze_in_background=analyze_in_background,
     )

@@ -13,6 +13,8 @@ endpoint on a string of real Bedrock calls.
 from __future__ import annotations
 
 import asyncio
+import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from app.application.incidents.ingest import IngestIncident
@@ -44,6 +46,11 @@ class PollAlarmsJob:
     ingest: IngestIncident
     resolve: ResolveIncident
     uow: UnitOfWork
+    # Runs analysis on its own independent session/lifecycle. `ingest`'s session belongs to
+    # whichever caller built this job and gets closed as soon as run() returns, so the
+    # background analysis (a real LLM call, several seconds) can't reuse it — see the module
+    # docstring and the session-lifecycle bug this field fixes.
+    analyze_in_background: Callable[[uuid.UUID], Awaitable[None]]
 
     async def run(self) -> None:
         for connection in await self.connections.list():
@@ -69,7 +76,7 @@ class PollAlarmsJob:
             incident = await self.ingest.create_incident(
                 source="cloudwatch_alarm", context=_build_alert_context(connection, alarm)
             )
-            asyncio.create_task(self.ingest.analyze_incident(incident))
+            asyncio.create_task(self.analyze_in_background(incident.id))
             await self.tracked.upsert(
                 connection.id, alarm_arn=alarm.arn, alarm_name=alarm.name,
                 last_state="ALARM", incident_id=incident.id,
