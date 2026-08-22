@@ -8,7 +8,11 @@ import pytest
 
 from app.infrastructure.config import Settings
 from app.infrastructure.llm import claude_cli
-from app.infrastructure.llm.claude_cli import ClaudeCliAnalyzer, ClaudeCliChatModel
+from app.infrastructure.llm.claude_cli import (
+    ClaudeCliAnalyzer,
+    ClaudeCliChatModel,
+    verify_claude_cli_token,
+)
 from app.infrastructure.llm.parsing import AnalysisError
 
 pytestmark = pytest.mark.asyncio
@@ -88,3 +92,44 @@ async def test_chat_model_returns_the_cli_result_text(monkeypatch):
     chat = ClaudeCliChatModel(_settings())
     result = await chat.complete("be terse", "user question")
     assert result == "42"
+
+
+async def test_verify_reports_ok_when_the_cli_call_succeeds(monkeypatch):
+    async def fake_call(**_kwargs):
+        return "OK"
+
+    async def fake_get_token(settings):
+        return "test-token"
+
+    monkeypatch.setattr(claude_cli, "_call_claude_cli", fake_call)
+    monkeypatch.setattr(claude_cli, "_get_token", fake_get_token)
+
+    ok, error = await verify_claude_cli_token(_settings())
+    assert ok is True
+    assert error is None
+
+
+async def test_verify_reports_the_cli_error_when_the_token_is_invalid(monkeypatch):
+    async def fake_call(**_kwargs):
+        raise RuntimeError("claude CLI failed: Failed to authenticate. API Error: 401 Invalid bearer token")
+
+    async def fake_get_token(settings):
+        return "stale-token"
+
+    monkeypatch.setattr(claude_cli, "_call_claude_cli", fake_call)
+    monkeypatch.setattr(claude_cli, "_get_token", fake_get_token)
+
+    ok, error = await verify_claude_cli_token(_settings())
+    assert ok is False
+    assert "401" in error
+
+
+async def test_verify_reports_when_no_token_is_configured(monkeypatch):
+    async def fake_get_token(settings):
+        raise AnalysisError("Claude Code token is not configured")
+
+    monkeypatch.setattr(claude_cli, "_get_token", fake_get_token)
+
+    ok, error = await verify_claude_cli_token(_settings())
+    assert ok is False
+    assert "not configured" in error

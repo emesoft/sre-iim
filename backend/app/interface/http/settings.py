@@ -8,7 +8,9 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, status
 
+from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.db.repositories import SqlAlchemyAppSettingsRepository
+from app.infrastructure.llm.claude_cli import verify_claude_cli_token
 from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.security.keys import CLAUDE_CLI_TOKEN_KEY
 from app.interface.http.deps import (
@@ -18,7 +20,7 @@ from app.interface.http.deps import (
     require_admin,
 )
 from app.interface.http.dto.request import SetTokenRequest
-from app.interface.http.dto.response import SettingStatus
+from app.interface.http.dto.response import SettingStatus, TestConnectionResult
 
 router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_admin)])
 
@@ -42,3 +44,11 @@ async def set_claude_token(
     """Encrypt and store the Claude Code headless OAuth token (from `claude setup-token`)."""
     await settings.set(CLAUDE_CLI_TOKEN_KEY, encryptor.encrypt(body.token))
     await uow.commit()
+
+
+@router.post("/claude-token/test", response_model=TestConnectionResult)
+async def test_claude_token(settings: Settings = Depends(get_settings)) -> TestConnectionResult:
+    """Make a real, minimal `claude -p` call with the stored token — a saved token can still be
+    expired/revoked, so "is configured" alone doesn't mean "still works"."""
+    ok, error = await verify_claude_cli_token(settings)
+    return TestConnectionResult(ok=ok, error=error)

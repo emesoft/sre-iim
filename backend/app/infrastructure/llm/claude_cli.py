@@ -83,6 +83,21 @@ async def _call_claude_cli(*, prompt: str, system_prompt: str | None, model: str
     return data["result"]
 
 
+async def verify_claude_cli_token(settings: Settings) -> tuple[bool, str | None]:
+    """Test whether the stored Claude Code token still works — a real, minimal `claude -p` call,
+    not just "is a value stored" (a token can be saved but expired/revoked). Never raises; reports
+    the failure reason instead, so the Settings page can show it (e.g. "run `claude setup-token`
+    again")."""
+    try:
+        token = await _get_token(settings)
+        await _call_claude_cli(
+            prompt="Reply with exactly: OK", system_prompt=None, model=settings.claude_cli_model, token=token
+        )
+        return True, None
+    except Exception as exc:  # noqa: BLE001 - reported to the caller as a test result, not raised
+        return False, str(exc)
+
+
 class ClaudeCliAnalyzer:
     """Implements the domain `Analyzer` port via the Claude Code CLI (see module docstring)."""
 

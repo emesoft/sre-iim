@@ -83,3 +83,29 @@ async def test_the_response_never_includes_the_token_value(client):
 async def test_setting_an_empty_token_is_422(client):
     r = await client.put("/api/settings/claude-token", json={"token": ""})
     assert r.status_code == 422
+
+
+async def test_test_endpoint_reports_ok(client, monkeypatch):
+    async def fake_verify(settings):
+        return True, None
+
+    monkeypatch.setattr(
+        "app.interface.http.settings.verify_claude_cli_token", fake_verify
+    )
+    r = await client.post("/api/settings/claude-token/test")
+    assert r.status_code == 200
+    assert r.json() == {"ok": True, "error": None}
+
+
+async def test_test_endpoint_reports_the_failure_reason(client, monkeypatch):
+    async def fake_verify(settings):
+        return False, "claude CLI failed: 401 Invalid bearer token"
+
+    monkeypatch.setattr(
+        "app.interface.http.settings.verify_claude_cli_token", fake_verify
+    )
+    r = await client.post("/api/settings/claude-token/test")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False
+    assert "401" in body["error"]
