@@ -3,7 +3,6 @@
 import pytest
 
 from app.application.cloud_connections.manage import ManageCloudConnections
-from app.domain.cloud_connections.entities import CloudConnection
 from app.infrastructure.security.encryptor import Encryptor
 
 pytestmark = pytest.mark.asyncio
