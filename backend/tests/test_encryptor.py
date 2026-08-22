@@ -14,6 +14,11 @@ def test_round_trip():
     assert enc.decrypt(ciphertext) == "AKIAEXAMPLE"
 
 
-def test_missing_key_raises():
+def test_missing_key_raises_lazily_on_use():
+    # Construction with an empty key must not raise (SSO-only connections never encrypt/decrypt) —
+    # the key is only required at the moment it's actually needed.
+    enc = Encryptor("")
     with pytest.raises(ValueError, match="SECRET_ENCRYPTION_KEY"):
-        Encryptor("")
+        enc.encrypt("AKIAEXAMPLE")
+    with pytest.raises(ValueError, match="SECRET_ENCRYPTION_KEY"):
+        enc.decrypt("ciphertext")
