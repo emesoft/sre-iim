@@ -42,8 +42,15 @@ class IngestIncident:
     uow: UnitOfWork
     cache_ttl_seconds: int
 
-    async def create_incident(self, *, source: str, context: dict) -> Incident:
-        """Persist a new incident (status="analyzing") and commit. No analysis yet.
+    async def create_incident(
+        self, *, source: str, context: dict, status: str = "analyzing"
+    ) -> Incident:
+        """Persist a new incident and commit. No analysis yet.
+
+        `status` defaults to "analyzing" — the caller is expected to trigger analysis right after
+        (the manual UI create flow, `POST /api/incidents`). Pass status="new" for a caller that
+        wants the incident to wait for an explicit analyze trigger instead (CloudWatch-alarm
+        auto-created incidents — see PollAlarmsJob).
 
         Precondition: `context['service']` is present (validated at the interface boundary).
         """
@@ -53,7 +60,7 @@ class IngestIncident:
                 source=source,
                 fingerprint=fingerprint(context),
                 context=context,
-                status="analyzing",
+                status=status,
             )
         )
         await self.uow.commit()

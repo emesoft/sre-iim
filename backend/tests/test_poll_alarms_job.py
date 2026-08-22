@@ -1,10 +1,10 @@
 """Unit tests for PollAlarmsJob: the ALARM<->OK state machine, using in-memory fakes.
 
-Covers: OK/untracked -> ALARM creates an incident; ALARM -> ALARM is a no-op (no duplicate
-incident); ALARM -> OK auto-resolves; one connection's fetch/apply error doesn't stop the others.
+Covers: OK/untracked -> ALARM creates an incident (status="new", no analysis triggered);
+ALARM -> ALARM is a no-op (no duplicate incident); ALARM -> OK auto-resolves; one connection's
+fetch/apply error doesn't stop the others.
 """
 
-import asyncio
 import uuid
 
 import pytest
@@ -53,23 +53,16 @@ class FakeFetcher:
 
 
 class FakeIngest:
-    """Split to mirror the fast-create/background-analyze IngestIncident API PollAlarmsJob now
-    calls: `create_incident` (sync, fast) then `analyze_incident` (fired as a background task)."""
+    """PollAlarmsJob only ever calls `create_incident` (no analysis) — see the module docstring:
+    alarm-created incidents wait for a manual "Analyze with AI" trigger."""
 
-    def __init__(self, analyze_raises: Exception | None = None):
+    def __init__(self):
         self.calls = []
-        self.analyze_calls = []
-        self._analyze_raises = analyze_raises
 
-    async def create_incident(self, *, source, context):
-        self.calls.append((source, context))
+    async def create_incident(self, *, source, context, status="analyzing"):
+        self.calls.append((source, context, status))
         incident = type("I", (), {"id": uuid.uuid4()})()
         return incident
-
-    async def analyze_incident(self, incident, **kwargs):
-        self.analyze_calls.append(incident.id)
-        if self._analyze_raises is not None:
-            raise self._analyze_raises
 
 
 class FakeResolve:
@@ -88,18 +81,6 @@ class FakeUnitOfWork:
         pass
 
 
-class FakeAnalyzeInBackground:
-    """Stands in for the caller-provided closure that runs analysis on its own independent
-    session (see PollAlarmsJob.analyze_in_background) — just records the incident id it was
-    called with."""
-
-    def __init__(self):
-        self.calls = []
-
-    async def __call__(self, incident_id):
-        self.calls.append(incident_id)
-
-
 def _connection(**kw):
     return CloudConnection(
         id=uuid.uuid4(), project="GCM", env="prod", region="ap-southeast-1", auth_type="sso",
@@ -107,7 +88,7 @@ def _connection(**kw):
     )
 
 
-async def test_new_alarm_creates_an_incident():
+async def test_new_alarm_creates_an_incident_without_analyzing_it():
     conn = _connection()
     fetcher = FakeFetcher({conn.id: [AlarmState(arn="arn:1", name="cpu-high", state="ALARM")]})
     tracked = FakeTrackedAlarmRepo()
@@ -115,11 +96,11 @@ async def test_new_alarm_creates_an_incident():
     job = PollAlarmsJob(
         connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
-        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert len(ingest.calls) == 1
     assert ingest.calls[0][0] == "cloudwatch_alarm"
+    assert ingest.calls[0][2] == "new"  # status — no auto-analysis
     assert (await tracked.get(conn.id, "arn:1")).last_state == "ALARM"
 
 
@@ -137,7 +118,6 @@ async def test_already_alarming_does_not_create_a_second_incident():
     job = PollAlarmsJob(
         connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
-        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert ingest.calls == []
@@ -157,7 +137,6 @@ async def test_recovered_alarm_auto_resolves_the_incident():
     job = PollAlarmsJob(
         connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
         ingest=FakeIngest(), resolve=resolve, uow=FakeUnitOfWork(),
-        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert resolve.calls == [(incident_id, resolve.calls[0][1])]
@@ -177,7 +156,6 @@ async def test_one_connection_error_does_not_stop_the_others():
     job = PollAlarmsJob(
         connections=connections, tracked=FakeTrackedAlarmRepo(), fetcher=fetcher,
         ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
-        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
     assert len(ingest.calls) == 1  # good connection still processed
@@ -210,7 +188,6 @@ async def test_resolve_failure_for_one_connection_does_not_stop_the_others():
     job = PollAlarmsJob(
         connections=connections, tracked=tracked, fetcher=fetcher,
         ingest=ingest, resolve=resolve, uow=FakeUnitOfWork(),
-        analyze_in_background=FakeAnalyzeInBackground(),
     )
     await job.run()
 
@@ -219,25 +196,3 @@ async def test_resolve_failure_for_one_connection_does_not_stop_the_others():
     # ...and the good connection is still polled and creates its incident.
     assert len(ingest.calls) == 1
     assert any(cid == good.id and status == "ok" for cid, status, _ in connections.poll_results)
-
-
-async def test_analysis_runs_as_a_background_task_and_does_not_block_run():
-    """Important 4: analyze_incident must not be awaited inline — run() should return once the
-    incident is created, with analysis scheduled separately."""
-    conn = _connection()
-    fetcher = FakeFetcher({conn.id: [AlarmState(arn="arn:1", name="cpu-high", state="ALARM")]})
-    ingest = FakeIngest()
-    tracked = FakeTrackedAlarmRepo()
-    analyze_in_background = FakeAnalyzeInBackground()
-    job = PollAlarmsJob(
-        connections=FakeConnectionRepo([conn]), tracked=tracked, fetcher=fetcher,
-        ingest=ingest, resolve=FakeResolve(), uow=FakeUnitOfWork(),
-        analyze_in_background=analyze_in_background,
-    )
-    await job.run()
-    assert len(ingest.calls) == 1
-    incident_id = (await tracked.get(conn.id, "arn:1")).incident_id
-    # analyze_in_background is fired as a background task, not awaited inline - give the event
-    # loop a turn so it actually runs before asserting.
-    await asyncio.sleep(0)
-    assert analyze_in_background.calls == [incident_id]

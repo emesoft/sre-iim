@@ -6,6 +6,7 @@ when no database is reachable.
 """
 
 import os
+import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -254,4 +255,36 @@ async def test_log_search_404_for_unknown_incident(client):
             "end": "2026-07-25T01:00:00Z",
         },
     )
+    assert r.status_code == 404
+
+
+async def test_analyze_endpoint_runs_analysis_for_a_new_incident(client):
+    # Simulates a CloudWatch-alarm-created incident: status="new", no analysis yet — inserted
+    # directly since there's no public endpoint that creates one without also analyzing it.
+    engine = create_async_engine(_DB_URL)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    incident_id = uuid.uuid4()
+    async with maker() as s:
+        s.add(
+            IncidentRow(
+                id=incident_id, service="EVP", source="cloudwatch_alarm",
+                fingerprint="fp-1", context=_CTX, status="new",
+            )
+        )
+        await s.commit()
+    await engine.dispose()
+
+    r = await client.post(f"/api/incidents/{incident_id}/analyze")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "analyzing"
+    assert body["stream"] == f"/api/incidents/{incident_id}/stream"
+    await _await_analyzed(client, str(incident_id))
+
+    r = await client.get(f"/api/incidents/{incident_id}")
+    assert r.json()["analysis"]["severity"] == "critical"
+
+
+async def test_analyze_404_for_unknown_incident(client):
+    r = await client.post("/api/incidents/00000000-0000-0000-0000-000000000000/analyze")
     assert r.status_code == 404

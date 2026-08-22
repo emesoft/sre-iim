@@ -144,6 +144,16 @@ async def test_create_incident_persists_as_analyzing_without_running_the_analyze
     assert uow.commits == 1
 
 
+async def test_create_incident_accepts_an_explicit_status():
+    # CloudWatch-alarm-created incidents pass status="new" so they wait for a manual "Analyze
+    # with AI" trigger instead of auto-analyzing (see PollAlarmsJob).
+    usecase, repo, _, analyzer, _, uow = _make()
+    incident = await usecase.create_incident(source="cloudwatch_alarm", context=dict(_CTX), status="new")
+    assert incident.status == "new"
+    assert repo.incidents[incident.id].status == "new"
+    assert analyzer.calls == 0
+
+
 async def test_analyze_incident_runs_analyzer_and_marks_analyzed():
     usecase, _, _, analyzer, _, uow = _make()
     incident = await usecase.create_incident(source="manual", context=dict(_CTX))

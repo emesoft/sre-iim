@@ -4,17 +4,15 @@ Drives the existing IngestIncident/ResolveIncident use cases unchanged (source="
 Per-connection failures are isolated so one bad connection (expired SSO token, revoked key) doesn't
 block the others — see design spec "Polling & state machine".
 
-Incident creation is split from analysis (same fast/slow split `POST /api/incidents` uses): a new
-alarm calls `create_incident` synchronously (fast, no LLM call) and fires the real analysis off as
-a background task, so a poll with many alarms currently firing doesn't block the manual Refresh
-endpoint on a string of real Bedrock calls.
+A new alarm only calls `create_incident` (status="new") — it does NOT trigger AI analysis. The
+alarm's raw reason/metric is enough to show something useful on the incident card immediately; the
+user reviews it and clicks "Analyze with AI" (`POST /api/incidents/{id}/analyze`) when they want the
+LLM call. This is deliberately different from the manual "New incident" UI flow, which still
+analyzes immediately — that's an explicit user action already, unlike an alarm firing on its own.
 """
 
 from __future__ import annotations
 
-import asyncio
-import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
 from app.application.incidents.ingest import IngestIncident
@@ -46,11 +44,6 @@ class PollAlarmsJob:
     ingest: IngestIncident
     resolve: ResolveIncident
     uow: UnitOfWork
-    # Runs analysis on its own independent session/lifecycle. `ingest`'s session belongs to
-    # whichever caller built this job and gets closed as soon as run() returns, so the
-    # background analysis (a real LLM call, several seconds) can't reuse it — see the module
-    # docstring and the session-lifecycle bug this field fixes.
-    analyze_in_background: Callable[[uuid.UUID], Awaitable[None]]
 
     async def run(self) -> None:
         for connection in await self.connections.list():
@@ -74,9 +67,10 @@ class PollAlarmsJob:
 
         if alarm.state == "ALARM" and not was_alarming:
             incident = await self.ingest.create_incident(
-                source="cloudwatch_alarm", context=_build_alert_context(connection, alarm)
+                source="cloudwatch_alarm",
+                context=_build_alert_context(connection, alarm),
+                status="new",
             )
-            asyncio.create_task(self.analyze_in_background(incident.id))
             await self.tracked.upsert(
                 connection.id, alarm_arn=alarm.arn, alarm_name=alarm.name,
                 last_state="ALARM", incident_id=incident.id,

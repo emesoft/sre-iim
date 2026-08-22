@@ -107,6 +107,35 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
+@router.post("/{incident_id}/analyze", response_model=IncidentCreatedResponse)
+async def analyze_incident_now(
+    incident_id: uuid.UUID,
+    request: Request,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    bus: IncidentEventBus = Depends(get_event_bus),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+) -> IncidentCreatedResponse:
+    """Manually trigger analysis for an incident that hasn't been analyzed yet (status="new") —
+    the CloudWatch-alarm auto-ingest path creates incidents this way so alarm-created incidents
+    don't spend an LLM call until someone reviews the raw alert and asks for it. Reuses
+    `_run_analysis`, the same background-analysis path `POST /api/incidents` schedules."""
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    await repo.set_status(incident_id, "analyzing")
+    incident.status = "analyzing"
+    await uow.commit()
+
+    incident_id_str = str(incident.id)
+    bus.open(incident_id_str)
+    asyncio.create_task(_run_analysis(request.app, bus, incident))
+    return IncidentCreatedResponse(
+        incident_id=incident.id,
+        status=incident.status,
+        stream=f"/api/incidents/{incident.id}/stream",
+    )
+
+
 @router.get("/{incident_id}/stream")
 async def stream_incident(
     incident_id: uuid.UUID,

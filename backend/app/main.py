@@ -9,7 +9,6 @@ FastAPI docs: https://fastapi.tiangolo.com/
 APScheduler docs: https://apscheduler.readthedocs.io/
 """
 
-import uuid
 from contextlib import asynccontextmanager
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -45,31 +44,6 @@ from app.interface.http.settings import router as settings_router
 settings = get_settings()
 
 
-async def _analyze_scheduled_incident_in_background(incident_id: uuid.UUID) -> None:
-    """Runs one incident's analysis on its own fresh session — the session `_run_scheduled_poll`
-    built its PollAlarmsJob from is already closed by the time this background task runs (same
-    session-lifecycle bug `deps.get_poll_alarms_job`'s closure fixes for the manual-trigger path).
-    Mirrors `incidents.py`'s `_run_analysis`, minus the event-bus/SSE parts."""
-    async with SessionLocal() as session:
-        embedder = get_embedder()
-        ingest = IngestIncident(
-            incidents=SqlAlchemyIncidentRepository(session),
-            cache=SqlAlchemyAnalysisCacheRepository(session),
-            analyzer=get_analyzer(session=session, base=get_base_analyzer(), embedder=embedder),
-            clock=SystemClock(),
-            uow=SqlAlchemyUnitOfWork(session),
-            cache_ttl_seconds=settings.cache_ttl_seconds,
-        )
-        incident = await ingest.incidents.get(incident_id)
-        if incident is None:
-            return
-        try:
-            await ingest.analyze_incident(incident)
-        except Exception:  # noqa: BLE001 - any analyzer failure surfaces as "failed", not silence
-            await ingest.incidents.set_status(incident_id, "failed")
-            await ingest.uow.commit()
-
-
 async def _run_scheduled_poll() -> None:
     """Builds a PollAlarmsJob with its own session and runs one poll cycle. Wired into
     AsyncIOScheduler below; the manual `/api/cloud-connections/poll` endpoint uses the same
@@ -97,7 +71,6 @@ async def _run_scheduled_poll() -> None:
                 uow=SqlAlchemyUnitOfWork(session),
             ),
             uow=SqlAlchemyUnitOfWork(session),
-            analyze_in_background=_analyze_scheduled_incident_in_background,
         )
         await job.run()
 

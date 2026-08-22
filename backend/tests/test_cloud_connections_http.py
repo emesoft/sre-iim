@@ -1,16 +1,11 @@
 """End-to-end HTTP tests for /api/cloud-connections against real Postgres.
 
 Overrides get_alarm_fetcher with a fake so no real AWS call happens (same pattern as
-test_documents_http.py overriding get_embedder). The poll test overrides get_base_analyzer and
-get_embedder with fakes (same pattern test_incidents_http.py uses), not get_analyzer directly:
-alarm analysis now runs in the background via `resolve_background_incident_deps` (see
-app/interface/http/deps.py's `_analyze_incident_in_background`, added to fix the session-lifecycle
-race), which only honors overrides for get_session/get_base_analyzer/get_embedder — not
-get_analyzer itself — so this is the override combination that actually reaches the background
-analysis path.
+test_documents_http.py overriding get_embedder). Alarm-created incidents no longer auto-analyze
+(status="new" — see PollAlarmsJob's module docstring), so the poll test needs no analyzer/embedder
+fakes at all.
 """
 
-import asyncio
 import os
 
 import pytest
@@ -19,9 +14,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domain.cloud_connections.entities import AlarmState
-from app.domain.incidents.entities import AnalysisDraft
 from app.infrastructure.db.orm import (
-    EMBED_DIM,
     AnalysisCacheRow,
     AnalysisRow,
     Base,
@@ -30,14 +23,7 @@ from app.infrastructure.db.orm import (
     TrackedAlarmRow,
 )
 from app.infrastructure.security.encryptor import Encryptor
-from app.interface.http.deps import (
-    get_alarm_fetcher,
-    get_base_analyzer,
-    get_embedder,
-    get_encryptor,
-    get_session,
-    require_admin,
-)
+from app.interface.http.deps import get_alarm_fetcher, get_encryptor, get_session, require_admin
 from app.main import app
 
 pytestmark = pytest.mark.asyncio
@@ -61,32 +47,6 @@ class _FakeFetcher:
         if self._should_fail:
             raise RuntimeError("access denied")
         return self._alarms
-
-
-class _FakeAnalyzer:
-    """Stands in for the real Bedrock/DeepSeek base analyzer so the poll test doesn't need live
-    LLM credentials — mirrors test_ingest_usecase.py's CountingAnalyzer fake."""
-
-    async def analyze(self, context, evidence=None, reporter=None):
-        return AnalysisDraft(
-            severity="critical",
-            summary="CloudWatch alarm firing",
-            root_cause="unknown (fake analyzer)",
-            recommended_action="investigate the alarm",
-            confidence="high",
-            model_id="fake-model",
-        )
-
-
-class _FakeEmbedder:
-    """Stands in for the real embedder so the background analysis path (RagAnalyzer, via
-    resolve_background_incident_deps) doesn't need a live embedding call."""
-
-    async def embed_documents(self, texts):
-        return [[0.1] * EMBED_DIM for _ in texts]
-
-    async def embed_query(self, text):
-        return [0.1] * EMBED_DIM
 
 
 @pytest.fixture()
@@ -212,29 +172,10 @@ async def test_test_connection_endpoint_reports_ok(client):
     assert r.json() == {"ok": True, "error": None}
 
 
-async def _await_status(client, incident_id: str, *, timeout_s: float = 5.0) -> str:
-    """PollAlarmsJob has no event bus (unlike POST /api/incidents' SSE stream), so there's no
-    push notification for the background analysis finishing - poll GET until the incident leaves
-    "analyzing", proving it doesn't get stuck there forever (the bug this test guards against)."""
-    deadline = asyncio.get_event_loop().time() + timeout_s
-    while True:
-        r = await client.get(f"/api/incidents/{incident_id}")
-        status_ = r.json()["status"]
-        if status_ != "analyzing":
-            return status_
-        if asyncio.get_event_loop().time() > deadline:
-            raise AssertionError(f"incident {incident_id} stuck at 'analyzing'")
-        await asyncio.sleep(0.05)
-
-
 async def test_poll_endpoint_creates_incident_from_alarming_connection(client):
     app.dependency_overrides[get_alarm_fetcher] = lambda: _FakeFetcher(
         alarms=[AlarmState(arn="arn:1", name="cpu-high", state="ALARM", reason="high cpu")]
     )
-    # Alarm analysis runs in the background via resolve_background_incident_deps, which only
-    # honors overrides for get_session/get_base_analyzer/get_embedder (not get_analyzer itself).
-    app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
-    app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
 
     r = await client.post(
         "/api/cloud-connections",
@@ -253,6 +194,7 @@ async def test_poll_endpoint_creates_incident_from_alarming_connection(client):
     assert "cloudwatch_alarm" in sources
 
     incident_id = next(i["id"] for i in incidents if i["source"] == "cloudwatch_alarm")
-    # Regression check for the session-lifecycle bug: the background analysis must complete
-    # (using its own independent session) instead of leaving the incident stuck at "analyzing".
-    assert await _await_status(client, incident_id) == "analyzed"
+    # Alarm-created incidents wait for a manual "Analyze with AI" trigger — no auto-analysis, so
+    # no LLM call/session is even needed at poll time.
+    r = await client.get(f"/api/incidents/{incident_id}")
+    assert r.json()["status"] == "new"
