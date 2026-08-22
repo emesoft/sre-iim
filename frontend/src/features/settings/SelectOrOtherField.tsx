@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 const OTHER = '__other__'
 const inputCls =
@@ -23,6 +23,14 @@ export function SelectOrOtherField({
 }) {
   const [choice, setChoice] = useState<string>(options.includes(value) ? value : OTHER)
   const [custom, setCustom] = useState<string>(options.includes(value) ? '' : value)
+
+  // Resync when `value` changes from outside this component (e.g. the parent form loads a
+  // different connection to edit) — the useState initializers above only run once on mount, so
+  // without this the dropdown would keep showing whatever was selected first.
+  useEffect(() => {
+    setChoice(options.includes(value) ? value : OTHER)
+    setCustom(options.includes(value) ? '' : value)
+  }, [value, options])
 
   const selectChoice = (next: string) => {
     setChoice(next)
