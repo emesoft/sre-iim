@@ -58,4 +58,10 @@ export const api = {
       body: JSON.stringify(body),
     }).then((r) => handle<T>(r)),
   del: <T>(path: string): Promise<T> => fetch(path, { method: 'DELETE' }).then((r) => handle<T>(r)),
+  put: <T>(path: string, body: unknown): Promise<T> =>
+    fetch(path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then((r) => handle<T>(r)),
 }

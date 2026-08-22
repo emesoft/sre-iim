@@ -155,3 +155,7 @@ export interface TestConnectionResult {
 export interface PollResult {
   polled: number
 }
+
+export interface SettingStatus {
+  is_set: boolean
+}

@@ -3,6 +3,7 @@ import { api, errText } from '../lib/api'
 import type { CloudConnection, PollResult } from '../lib/types'
 import { CloudConnectionForm } from '../features/settings/CloudConnectionForm'
 import { CloudConnectionTable } from '../features/settings/CloudConnectionTable'
+import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
 import { Button } from '../components/ui/Button'
 
 export function Settings() {
@@ -42,6 +43,8 @@ export function Settings() {
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="animate-in flex flex-col gap-6">
+        <ClaudeTokenForm />
+
         <CloudConnectionForm onCreated={(c) => setConnections((prev) => [...prev, c])} />
 
         <div className="flex items-center justify-between">
