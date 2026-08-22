@@ -1,0 +1,53 @@
+"""Ports the cloud-connection use cases depend on. Implemented in the infrastructure layer.
+
+Same dependency-inversion convention as domain/incidents/ports.py.
+"""
+
+from __future__ import annotations
+
+import uuid
+from typing import Protocol
+
+from app.domain.cloud_connections.entities import AlarmState, CloudConnection, TrackedAlarm
+
+__all__ = ["CloudConnectionRepository", "TrackedAlarmRepository", "AlarmFetcher"]
+
+
+class CloudConnectionRepository(Protocol):
+    """Persistence for cloud connections."""
+
+    async def add(self, connection: CloudConnection) -> CloudConnection: ...
+
+    async def get(self, connection_id: uuid.UUID) -> CloudConnection | None: ...
+
+    async def list(self) -> list[CloudConnection]: ...
+
+    async def delete(self, connection_id: uuid.UUID) -> None: ...
+
+    async def record_poll_result(
+        self, connection_id: uuid.UUID, *, status: str, error: str | None
+    ) -> None:
+        """Update last_poll_at (now)/last_poll_status/last_poll_error after a poll attempt."""
+        ...
+
+
+class TrackedAlarmRepository(Protocol):
+    """Persistence for per-alarm polling state."""
+
+    async def get(self, connection_id: uuid.UUID, alarm_arn: str) -> TrackedAlarm | None: ...
+
+    async def upsert(
+        self,
+        connection_id: uuid.UUID,
+        *,
+        alarm_arn: str,
+        alarm_name: str,
+        last_state: str,
+        incident_id: uuid.UUID | None,
+    ) -> None: ...
+
+
+class AlarmFetcher(Protocol):
+    """Reads the current alarm states for one connection's AWS account."""
+
+    async def list_alarms(self, connection: CloudConnection) -> list[AlarmState]: ...
