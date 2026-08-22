@@ -4,6 +4,7 @@ import type { CloudConnection, PollResult, PollSchedule } from '../lib/types'
 import { CloudConnectionForm } from '../features/settings/CloudConnectionForm'
 import { CloudConnectionTable } from '../features/settings/CloudConnectionTable'
 import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
+import { LlmUsageCard } from '../features/settings/LlmUsageCard'
 import { AdminGate } from '../features/settings/AdminGate'
 import { Button } from '../components/ui/Button'
 
@@ -75,6 +76,7 @@ function SettingsContent() {
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="animate-in flex flex-col gap-6">
         <ClaudeTokenForm />
+        <LlmUsageCard />
 
         <CloudConnectionForm
           editing={editing}

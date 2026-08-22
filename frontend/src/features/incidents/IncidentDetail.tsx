@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Coins,
   Cpu,
   FileSearch,
   FileText,
@@ -228,6 +229,14 @@ export function IncidentDetail({
             <span className="inline-flex items-center gap-1.5">
               <Cpu size={13} /> <span className="font-mono text-ink-2">{a.model_id}</span>
             </span>
+            {a.input_tokens !== null && a.output_tokens !== null && (
+              <span className="inline-flex items-center gap-1.5">
+                <Coins size={13} />
+                <span className="font-mono text-ink-2">
+                  {a.input_tokens.toLocaleString()} in / {a.output_tokens.toLocaleString()} out
+                </span>
+              </span>
+            )}
           </div>
         </Card>
       ) : d.status === 'failed' ? (

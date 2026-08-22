@@ -22,6 +22,9 @@ export interface AnalysisOut {
   _cache: 'HIT' | 'MISS'
   evidence: EvidenceRef[]
   known_issue: KnownIssueOut | null
+  // null means "not tracked for this provider" — currently only claude_cli reports usage.
+  input_tokens: number | null
+  output_tokens: number | null
 }
 
 export interface IncidentSummary {
@@ -171,4 +174,17 @@ export interface SettingStatus {
 
 export interface AdminLoginResponse {
   token: string
+}
+
+export interface UsageByModel {
+  model_id: string
+  input_tokens: number
+  output_tokens: number
+  analyses_count: number
+}
+
+export interface LlmUsage {
+  total_input_tokens: number
+  total_output_tokens: number
+  by_model: UsageByModel[]
 }
