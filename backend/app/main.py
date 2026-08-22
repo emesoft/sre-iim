@@ -39,6 +39,7 @@ from app.interface.http.documents import router as documents_router
 from app.interface.http.health import router as health_router
 from app.interface.http.incidents import router as incidents_router
 from app.interface.http.reports import router as reports_router
+from app.interface.http.settings import router as settings_router
 
 settings = get_settings()
 
@@ -132,6 +133,7 @@ app.include_router(incidents_router)
 app.include_router(documents_router)
 app.include_router(reports_router)
 app.include_router(cloud_connections_router)
+app.include_router(settings_router)
 
 
 @app.get("/", tags=["meta"])

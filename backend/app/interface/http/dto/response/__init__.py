@@ -17,6 +17,7 @@ from app.interface.http.dto.response.incident import (
     LogSearchResult,
 )
 from app.interface.http.dto.response.report import DailyReportOut, ReportIncidentOut
+from app.interface.http.dto.response.settings import SettingStatus
 
 __all__ = [
     "IncidentCreatedResponse",
@@ -34,4 +35,5 @@ __all__ = [
     "CloudConnectionOut",
     "TestConnectionResult",
     "PollResult",
+    "SettingStatus",
 ]

@@ -33,6 +33,7 @@ from app.infrastructure.cloud.credential_resolver import CredentialResolver
 from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.db.repositories import (
     SqlAlchemyAnalysisCacheRepository,
+    SqlAlchemyAppSettingsRepository,
     SqlAlchemyCloudConnectionRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyIncidentRepository,
@@ -247,6 +248,12 @@ async def resolve_background_incident_deps(app: "FastAPI") -> AsyncIterator[Back
 
 def get_encryptor() -> Encryptor:
     return Encryptor(get_settings().secret_encryption_key)
+
+
+def get_app_settings_repository(
+    session: AsyncSession = Depends(get_session),
+) -> SqlAlchemyAppSettingsRepository:
+    return SqlAlchemyAppSettingsRepository(session)
 
 
 def get_cloud_connection_repository(

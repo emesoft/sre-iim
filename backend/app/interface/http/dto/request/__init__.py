@@ -7,6 +7,7 @@ from app.interface.http.dto.request.incident import (
     LogSearchRequest,
     ResolveIncidentRequest,
 )
+from app.interface.http.dto.request.settings import SetTokenRequest
 
 __all__ = [
     "IncidentIngestRequest",
@@ -14,4 +15,5 @@ __all__ = [
     "ResolveIncidentRequest",
     "DocumentIngestRequest",
     "CloudConnectionCreateRequest",
+    "SetTokenRequest",
 ]
