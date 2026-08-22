@@ -4,12 +4,15 @@ import type { CloudConnection, CloudConnectionCreate } from '../../lib/types'
 import { Button } from '../../components/ui/Button'
 
 const KNOWN_PROJECTS = ['BEC', 'EVP', 'GCM', 'SmartSuite', 'IIM']
+const OTHER_PROJECT = '__other__'
 
 const inputCls =
   'mt-1 w-full rounded-lg border border-hair bg-plane p-2 text-sm text-ink outline-none focus:border-accent'
 
 export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnection) => void }) {
-  const [project, setProject] = useState(KNOWN_PROJECTS[0])
+  const [projectChoice, setProjectChoice] = useState<string>(KNOWN_PROJECTS[0])
+  const [customProject, setCustomProject] = useState('')
+  const project = projectChoice === OTHER_PROJECT ? customProject : projectChoice
   const [env, setEnv] = useState('prod')
   const [region, setRegion] = useState('ap-southeast-1')
   const [authType, setAuthType] = useState<'sso' | 'access_key'>('sso')
@@ -38,6 +41,7 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
       setSsoProfileName('')
       setAccessKeyId('')
       setSecretAccessKey('')
+      setCustomProject('')
     } catch (e) {
       setError(errText(e))
     } finally {
@@ -50,13 +54,27 @@ export function CloudConnectionForm({ onCreated }: { onCreated: (c: CloudConnect
       <div className="flex gap-3">
         <label className="flex-1 text-sm text-ink-2">
           Project
-          <select value={project} onChange={(e) => setProject(e.target.value)} className={inputCls}>
+          <select
+            value={projectChoice}
+            onChange={(e) => setProjectChoice(e.target.value)}
+            className={inputCls}
+          >
             {KNOWN_PROJECTS.map((p) => (
               <option key={p} value={p}>
                 {p}
               </option>
             ))}
+            <option value={OTHER_PROJECT}>Other…</option>
           </select>
+          {projectChoice === OTHER_PROJECT && (
+            <input
+              value={customProject}
+              onChange={(e) => setCustomProject(e.target.value)}
+              placeholder="Project name"
+              className={inputCls}
+              required
+            />
+          )}
         </label>
         <label className="flex-1 text-sm text-ink-2">
           Env
