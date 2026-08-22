@@ -4,6 +4,7 @@ ensures no ORM type leaks past the infrastructure layer.
 
 from __future__ import annotations
 
+from app.domain.cloud_connections.entities import CloudConnection, TrackedAlarm
 from app.domain.documents.entities import Document
 from app.domain.incidents.entities import Analysis, Incident
 from app.infrastructure.db.orm import AnalysisRow, DocumentRow, IncidentRow
@@ -53,5 +54,35 @@ def document_to_domain(row: DocumentRow) -> Document:
         incident_id=row.incident_id,
         id=row.id,
         created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def cloud_connection_to_domain(row) -> CloudConnection:
+    return CloudConnection(
+        id=row.id,
+        project=row.project,
+        env=row.env,
+        cloud=row.cloud,
+        region=row.region,
+        auth_type=row.auth_type,
+        sso_profile_name=row.sso_profile_name,
+        encrypted_access_key_id=row.encrypted_access_key_id,
+        encrypted_secret_access_key=row.encrypted_secret_access_key,
+        last_poll_at=row.last_poll_at,
+        last_poll_status=row.last_poll_status,
+        last_poll_error=row.last_poll_error,
+        created_at=row.created_at,
+    )
+
+
+def tracked_alarm_to_domain(row) -> TrackedAlarm:
+    return TrackedAlarm(
+        id=row.id,
+        connection_id=row.connection_id,
+        alarm_arn=row.alarm_arn,
+        alarm_name=row.alarm_name,
+        last_state=row.last_state,
+        incident_id=row.incident_id,
         updated_at=row.updated_at,
     )
