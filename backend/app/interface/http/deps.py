@@ -15,21 +15,28 @@ from typing import TYPE_CHECKING
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.cloud_connections.manage import ManageCloudConnections
+from app.application.cloud_connections.poll_alarms import PollAlarmsJob
 from app.application.documents.ingest import IngestDocument
 from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
+from app.domain.cloud_connections.ports import AlarmFetcher, CloudConnectionRepository
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
 from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher, TicketClient
 from app.domain.llm import ChatModel
 from app.infrastructure.clock import SystemClock
+from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
+from app.infrastructure.cloud.credential_resolver import CredentialResolver
 from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.db.repositories import (
     SqlAlchemyAnalysisCacheRepository,
+    SqlAlchemyCloudConnectionRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyIncidentRepository,
     SqlAlchemyRetriever,
+    SqlAlchemyTrackedAlarmRepository,
     SqlAlchemyUnitOfWork,
 )
 from app.infrastructure.db.session import SessionLocal
@@ -41,6 +48,7 @@ from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
 from app.infrastructure.logs.factory import build_log_fetcher
+from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.tickets.ado_client import AdoTicketClient
 
 if TYPE_CHECKING:
@@ -234,3 +242,60 @@ async def resolve_background_incident_deps(app: "FastAPI") -> AsyncIterator[Back
         yield BackgroundIncidentDeps(
             ingest=ingest, documents=SqlAlchemyDocumentRepository(session)
         )
+
+
+def get_encryptor() -> Encryptor:
+    return Encryptor(get_settings().secret_encryption_key)
+
+
+def get_cloud_connection_repository(
+    session: AsyncSession = Depends(get_session),
+) -> CloudConnectionRepository:
+    return SqlAlchemyCloudConnectionRepository(session)
+
+
+def get_alarm_fetcher(
+    encryptor: Encryptor = Depends(get_encryptor),
+) -> AlarmFetcher:
+    """Tests override this to avoid a real AWS call (same convention as get_ticket_client)."""
+    return CloudWatchAlarmFetcher(CredentialResolver(encryptor))
+
+
+def get_manage_cloud_connections(
+    connections: CloudConnectionRepository = Depends(get_cloud_connection_repository),
+    encryptor: Encryptor = Depends(get_encryptor),
+    fetcher: AlarmFetcher = Depends(get_alarm_fetcher),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+) -> ManageCloudConnections:
+    return ManageCloudConnections(
+        connections=connections, encryptor=encryptor, fetcher=fetcher, uow=uow
+    )
+
+
+def get_poll_alarms_job(
+    session: AsyncSession = Depends(get_session),
+    fetcher: AlarmFetcher = Depends(get_alarm_fetcher),
+) -> PollAlarmsJob:
+    """Manual-trigger path (`POST /api/cloud-connections/poll`). The scheduled path builds its own
+    job with an independent session — see `build_scheduled_poll_job` in main.py."""
+    settings = get_settings()
+    return PollAlarmsJob(
+        connections=SqlAlchemyCloudConnectionRepository(session),
+        tracked=SqlAlchemyTrackedAlarmRepository(session),
+        fetcher=fetcher,
+        ingest=IngestIncident(
+            incidents=SqlAlchemyIncidentRepository(session),
+            cache=SqlAlchemyAnalysisCacheRepository(session),
+            analyzer=get_analyzer(session=session, base=get_base_analyzer(), embedder=get_embedder()),
+            clock=SystemClock(),
+            uow=SqlAlchemyUnitOfWork(session),
+            cache_ttl_seconds=settings.cache_ttl_seconds,
+        ),
+        resolve=ResolveIncident(
+            incidents=SqlAlchemyIncidentRepository(session),
+            documents=SqlAlchemyDocumentRepository(session),
+            embedder=get_embedder(),
+            uow=SqlAlchemyUnitOfWork(session),
+        ),
+        uow=SqlAlchemyUnitOfWork(session),
+    )
