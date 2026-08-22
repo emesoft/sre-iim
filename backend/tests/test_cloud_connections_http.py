@@ -1,33 +1,23 @@
 """End-to-end HTTP tests for /api/cloud-connections against real Postgres.
 
 Overrides get_alarm_fetcher with a fake so no real AWS call happens (same pattern as
-test_documents_http.py overriding get_embedder).
-
-The poll test also overrides get_poll_alarms_job with a fake analyzer. `get_poll_alarms_job`
-(app/interface/http/deps.py) builds its IngestIncident by calling `get_base_analyzer()` /
-`get_embedder()` / `get_analyzer()` directly as plain function calls rather than as `Depends(...)`
-parameters, so `app.dependency_overrides[get_base_analyzer]` (the mechanism used for
-get_session/get_alarm_fetcher) never reaches them — confirmed empirically: overriding those left
-the poll endpoint still calling real Bedrock and failing on `ValidationException: The provided
-model identifier is invalid` in this environment. Overriding `get_poll_alarms_job` itself is the
-one override point that FastAPI's DI actually reaches, since the route depends on it via
-`Depends(get_poll_alarms_job)`.
+test_documents_http.py overriding get_embedder). The poll test overrides get_analyzer with a fake
+analyzer (mirrors test_ingest_usecase.py's CountingAnalyzer) instead of hand-building a fake
+PollAlarmsJob — now that `get_poll_alarms_job` (app/interface/http/deps.py) declares its
+analyzer/embedder as `Depends(...)` parameters rather than calling them directly, overriding
+get_analyzer reaches it the same way overriding get_session/get_alarm_fetcher already did, so this
+test exercises the real production wiring for PollAlarmsJob.
 """
 
 import os
 
 import pytest
-from fastapi import Depends
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.application.cloud_connections.poll_alarms import PollAlarmsJob
-from app.application.incidents.ingest import IngestIncident
-from app.application.incidents.resolve import ResolveIncident
 from app.domain.cloud_connections.entities import AlarmState
 from app.domain.incidents.entities import AnalysisDraft
-from app.infrastructure.clock import SystemClock
 from app.infrastructure.db.orm import (
     AnalysisCacheRow,
     AnalysisRow,
@@ -36,19 +26,11 @@ from app.infrastructure.db.orm import (
     IncidentRow,
     TrackedAlarmRow,
 )
-from app.infrastructure.db.repositories import (
-    SqlAlchemyAnalysisCacheRepository,
-    SqlAlchemyCloudConnectionRepository,
-    SqlAlchemyDocumentRepository,
-    SqlAlchemyIncidentRepository,
-    SqlAlchemyTrackedAlarmRepository,
-    SqlAlchemyUnitOfWork,
-)
-from app.infrastructure.config import get_settings
+from app.infrastructure.security.encryptor import Encryptor
 from app.interface.http.deps import (
     get_alarm_fetcher,
-    get_embedder,
-    get_poll_alarms_job,
+    get_analyzer,
+    get_encryptor,
     get_session,
 )
 from app.main import app
@@ -58,6 +40,11 @@ pytestmark = pytest.mark.asyncio
 _DB_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
     "DATABASE_URL", "postgresql+asyncpg://iim:iim@localhost:5432/iim"
 )
+
+# A valid Fernet key so this test suite passes regardless of the ambient SECRET_ENCRYPTION_KEY env
+# var (get_settings() is @lru_cache'd module-level and not easily overridden per-test, so we
+# override get_encryptor itself instead).
+_TEST_ENCRYPTION_KEY = "QMveDxMLB0eSF3PseIEr3fWyV7B0F5Ebk2KGC2JaZJk="
 
 
 class _FakeFetcher:
@@ -109,6 +96,7 @@ async def client():
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_alarm_fetcher] = lambda: _FakeFetcher()
+    app.dependency_overrides[get_encryptor] = lambda: Encryptor(_TEST_ENCRYPTION_KEY)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -211,31 +199,7 @@ async def test_poll_endpoint_creates_incident_from_alarming_connection(client):
     app.dependency_overrides[get_alarm_fetcher] = lambda: _FakeFetcher(
         alarms=[AlarmState(arn="arn:1", name="cpu-high", state="ALARM", reason="high cpu")]
     )
-
-    def _fake_poll_alarms_job(session=Depends(get_session), fetcher=Depends(get_alarm_fetcher)):
-        settings = get_settings()
-        return PollAlarmsJob(
-            connections=SqlAlchemyCloudConnectionRepository(session),
-            tracked=SqlAlchemyTrackedAlarmRepository(session),
-            fetcher=fetcher,
-            ingest=IngestIncident(
-                incidents=SqlAlchemyIncidentRepository(session),
-                cache=SqlAlchemyAnalysisCacheRepository(session),
-                analyzer=_FakeAnalyzer(),
-                clock=SystemClock(),
-                uow=SqlAlchemyUnitOfWork(session),
-                cache_ttl_seconds=settings.cache_ttl_seconds,
-            ),
-            resolve=ResolveIncident(
-                incidents=SqlAlchemyIncidentRepository(session),
-                documents=SqlAlchemyDocumentRepository(session),
-                embedder=get_embedder(),
-                uow=SqlAlchemyUnitOfWork(session),
-            ),
-            uow=SqlAlchemyUnitOfWork(session),
-        )
-
-    app.dependency_overrides[get_poll_alarms_job] = _fake_poll_alarms_job
+    app.dependency_overrides[get_analyzer] = lambda: _FakeAnalyzer()
 
     r = await client.post(
         "/api/cloud-connections",

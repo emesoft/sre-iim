@@ -275,9 +275,15 @@ def get_manage_cloud_connections(
 def get_poll_alarms_job(
     session: AsyncSession = Depends(get_session),
     fetcher: AlarmFetcher = Depends(get_alarm_fetcher),
+    analyzer: Analyzer = Depends(get_analyzer),
+    embedder: Embedder = Depends(get_embedder),
 ) -> PollAlarmsJob:
     """Manual-trigger path (`POST /api/cloud-connections/poll`). The scheduled path builds its own
-    job with an independent session — see `build_scheduled_poll_job` in main.py."""
+    job with an independent session — see `build_scheduled_poll_job` in main.py.
+
+    `analyzer`/`embedder` are declared as `Depends(...)` (not called directly) so
+    `app.dependency_overrides` actually reaches them in tests, same as every other use-case
+    factory in this file."""
     settings = get_settings()
     return PollAlarmsJob(
         connections=SqlAlchemyCloudConnectionRepository(session),
@@ -286,7 +292,7 @@ def get_poll_alarms_job(
         ingest=IngestIncident(
             incidents=SqlAlchemyIncidentRepository(session),
             cache=SqlAlchemyAnalysisCacheRepository(session),
-            analyzer=get_analyzer(session=session, base=get_base_analyzer(), embedder=get_embedder()),
+            analyzer=analyzer,
             clock=SystemClock(),
             uow=SqlAlchemyUnitOfWork(session),
             cache_ttl_seconds=settings.cache_ttl_seconds,
@@ -294,7 +300,7 @@ def get_poll_alarms_job(
         resolve=ResolveIncident(
             incidents=SqlAlchemyIncidentRepository(session),
             documents=SqlAlchemyDocumentRepository(session),
-            embedder=get_embedder(),
+            embedder=embedder,
             uow=SqlAlchemyUnitOfWork(session),
         ),
         uow=SqlAlchemyUnitOfWork(session),
