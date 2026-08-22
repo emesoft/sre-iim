@@ -13,7 +13,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fastapi import Depends, Request
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.cloud_connections.manage import ManageCloudConnections
@@ -51,6 +51,7 @@ from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
 from app.infrastructure.logs.factory import build_log_fetcher
+from app.infrastructure.security.admin_auth import verify_admin_token
 from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.tickets.ado_client import AdoTicketClient
 
@@ -252,6 +253,19 @@ async def resolve_background_incident_deps(app: "FastAPI") -> AsyncIterator[Back
         yield BackgroundIncidentDeps(
             ingest=ingest, documents=SqlAlchemyDocumentRepository(session)
         )
+
+
+def require_admin(
+    authorization: str | None = Header(default=None), settings: Settings = Depends(get_settings)
+) -> None:
+    """Gate for the Settings-page endpoints (cloud connections + the Claude Code token) — a single
+    shared admin password, not a per-user account system. Raises 401 on any missing/invalid/
+    expired token so FastAPI never resolves the route body."""
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+    if not token or not verify_admin_token(token, settings.admin_jwt_secret):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="admin login required")
 
 
 def get_encryptor() -> Encryptor:

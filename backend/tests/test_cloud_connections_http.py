@@ -36,6 +36,7 @@ from app.interface.http.deps import (
     get_embedder,
     get_encryptor,
     get_session,
+    require_admin,
 )
 from app.main import app
 
@@ -112,6 +113,7 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_alarm_fetcher] = lambda: _FakeFetcher()
     app.dependency_overrides[get_encryptor] = lambda: Encryptor(_TEST_ENCRYPTION_KEY)
+    app.dependency_overrides[require_admin] = lambda: None
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

@@ -9,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
-from app.interface.http.deps import get_manage_cloud_connections, get_poll_alarms_job
+from app.interface.http.deps import get_manage_cloud_connections, get_poll_alarms_job, require_admin
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import CloudConnectionCreateRequest
 from app.interface.http.dto.response import CloudConnectionOut, PollResult, TestConnectionResult
 
-router = APIRouter(prefix="/api/cloud-connections", tags=["cloud-connections"])
+router = APIRouter(
+    prefix="/api/cloud-connections", tags=["cloud-connections"], dependencies=[Depends(require_admin)]
+)
 
 _AUTH_TYPES = {"sso", "access_key"}
 

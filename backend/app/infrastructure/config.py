@@ -86,6 +86,13 @@ class Settings(BaseSettings):
     secret_encryption_key: str = ""  # Fernet key (44-char urlsafe base64); required to store access keys
     alarm_poll_interval_minutes: int = 60
 
+    # --- Settings-page admin gate ---
+    # A single shared password (not a per-user account system) — gates /api/cloud-connections/*
+    # and /api/settings/* (AWS connections + the claude_cli token). admin_jwt_secret signs the
+    # session token issued on successful login; unset means the gate can never issue a valid one.
+    admin_password: str | None = None
+    admin_jwt_secret: str = ""
+
     @property
     def cors_origins_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

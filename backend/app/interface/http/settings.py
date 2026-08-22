@@ -11,11 +11,16 @@ from fastapi import APIRouter, Depends, status
 from app.infrastructure.db.repositories import SqlAlchemyAppSettingsRepository
 from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.security.keys import CLAUDE_CLI_TOKEN_KEY
-from app.interface.http.deps import get_app_settings_repository, get_encryptor, get_unit_of_work
+from app.interface.http.deps import (
+    get_app_settings_repository,
+    get_encryptor,
+    get_unit_of_work,
+    require_admin,
+)
 from app.interface.http.dto.request import SetTokenRequest
 from app.interface.http.dto.response import SettingStatus
 
-router = APIRouter(prefix="/api/settings", tags=["settings"])
+router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_admin)])
 
 
 @router.get("/claude-token", response_model=SettingStatus)

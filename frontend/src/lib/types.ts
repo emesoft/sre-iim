@@ -159,3 +159,7 @@ export interface PollResult {
 export interface SettingStatus {
   is_set: boolean
 }
+
+export interface AdminLoginResponse {
+  token: string
+}

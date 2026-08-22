@@ -4,9 +4,18 @@ import type { CloudConnection, PollResult } from '../lib/types'
 import { CloudConnectionForm } from '../features/settings/CloudConnectionForm'
 import { CloudConnectionTable } from '../features/settings/CloudConnectionTable'
 import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
+import { AdminGate } from '../features/settings/AdminGate'
 import { Button } from '../components/ui/Button'
 
 export function Settings() {
+  return (
+    <AdminGate>
+      <SettingsContent />
+    </AdminGate>
+  )
+}
+
+function SettingsContent() {
   const [connections, setConnections] = useState<CloudConnection[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

@@ -1,7 +1,5 @@
 """Unit tests for the admin token signer/verifier — no DB, no network."""
 
-import pytest
-
 from app.infrastructure.security.admin_auth import create_admin_token, verify_admin_token
 
 _SECRET = "test-jwt-secret"

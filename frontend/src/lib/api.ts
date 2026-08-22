@@ -2,6 +2,32 @@
 // paths, which Vite proxies to :8000 in dev. Non-2xx responses throw an ApiError
 // carrying the backend's `detail` string so the UI can surface 422 validation messages.
 
+const ADMIN_TOKEN_STORAGE_KEY = 'iim_admin_token'
+
+export function getAdminToken(): string | null {
+  try {
+    return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY)
+  } catch {
+    return null // private-browsing / storage blocked — treat as logged out
+  }
+}
+
+export function setAdminToken(token: string): void {
+  try {
+    localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token)
+  } catch {
+    // storage blocked — nothing we can do, the gate will just re-prompt next load
+  }
+}
+
+export function clearAdminToken(): void {
+  try {
+    localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY)
+  } catch {
+    // ignore
+  }
+}
+
 export class ApiError extends Error {
   constructor(
     public status: number,
@@ -10,6 +36,11 @@ export class ApiError extends Error {
     super(`HTTP ${status}: ${detail}`)
     this.name = 'ApiError'
   }
+}
+
+function authHeaders(): Record<string, string> {
+  const token = getAdminToken()
+  return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 async function handle<T>(res: Response): Promise<T> {
@@ -21,6 +52,7 @@ async function handle<T>(res: Response): Promise<T> {
     body = null // non-JSON error page (e.g. proxy 500) — fall back to status text
   }
   if (!res.ok) {
+    if (res.status === 401) clearAdminToken() // stale/expired admin session — force re-login
     const detail =
       body && typeof body === 'object' && 'detail' in body
         ? typeof (body as { detail: unknown }).detail === 'string'
@@ -50,18 +82,20 @@ export function isUnreachable(e: unknown): boolean {
 }
 
 export const api = {
-  get: <T>(path: string): Promise<T> => fetch(path).then((r) => handle<T>(r)),
+  get: <T>(path: string): Promise<T> =>
+    fetch(path, { headers: authHeaders() }).then((r) => handle<T>(r)),
   post: <T>(path: string, body: unknown): Promise<T> =>
     fetch(path, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
     }).then((r) => handle<T>(r)),
-  del: <T>(path: string): Promise<T> => fetch(path, { method: 'DELETE' }).then((r) => handle<T>(r)),
+  del: <T>(path: string): Promise<T> =>
+    fetch(path, { method: 'DELETE', headers: authHeaders() }).then((r) => handle<T>(r)),
   put: <T>(path: string, body: unknown): Promise<T> =>
     fetch(path, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
     }).then((r) => handle<T>(r)),
 }
