@@ -6,8 +6,14 @@ from __future__ import annotations
 
 from app.domain.cloud_connections.entities import CloudConnection, TrackedAlarm
 from app.domain.documents.entities import Document
-from app.domain.incidents.entities import Analysis, Incident
-from app.infrastructure.db.orm import AnalysisRow, DocumentRow, IncidentRow
+from app.domain.incidents.entities import Analysis, ChatMessage, ChatSession, Incident
+from app.infrastructure.db.orm import (
+    AnalysisRow,
+    ChatMessageRow,
+    ChatSessionRow,
+    DocumentRow,
+    IncidentRow,
+)
 
 
 def incident_to_domain(row: IncidentRow) -> Incident:
@@ -89,4 +95,24 @@ def tracked_alarm_to_domain(row) -> TrackedAlarm:
         last_state=row.last_state,
         incident_id=row.incident_id,
         updated_at=row.updated_at,
+    )
+
+
+def chat_message_to_domain(row: ChatMessageRow) -> ChatMessage:
+    return ChatMessage(
+        incident_id=row.incident_id,
+        role=row.role,
+        content=row.content,
+        input_tokens=row.input_tokens,
+        output_tokens=row.output_tokens,
+        id=row.id,
+        created_at=row.created_at,
+    )
+
+
+def chat_session_to_domain(row: ChatSessionRow) -> ChatSession:
+    return ChatSession(
+        incident_id=row.incident_id,
+        claude_session_id=row.claude_session_id,
+        created_at=row.created_at,
     )

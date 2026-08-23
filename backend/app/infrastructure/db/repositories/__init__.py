@@ -4,6 +4,7 @@ Re-exported so callers can `from app.infrastructure.db.repositories import SqlAl
 """
 
 from app.infrastructure.db.repositories.app_settings import SqlAlchemyAppSettingsRepository
+from app.infrastructure.db.repositories.chat import SqlAlchemyChatRepository
 from app.infrastructure.db.repositories.cloud_connections import (
     SqlAlchemyCloudConnectionRepository,
     SqlAlchemyTrackedAlarmRepository,
@@ -27,4 +28,5 @@ __all__ = [
     "SqlAlchemyCloudConnectionRepository",
     "SqlAlchemyTrackedAlarmRepository",
     "SqlAlchemyAppSettingsRepository",
+    "SqlAlchemyChatRepository",
 ]
