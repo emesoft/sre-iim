@@ -37,3 +37,25 @@ async def test_get_daily_report_returns_counts_and_markdown():
     assert len(body["incidents"]) == 1
     assert body["incidents"][0]["service"] == "GCM"
     assert "2 incidents" in body["slack_markdown"] or "incidents" in body["slack_markdown"]
+
+
+async def test_get_daily_report_filters_by_service():
+    import datetime as dt
+
+    gcm = _incident("GCM", "new", dt.datetime(2026, 7, 25, 10, tzinfo=dt.timezone.utc))
+    evp = _incident("EVP", "new", dt.datetime(2026, 7, 25, 11, tzinfo=dt.timezone.utc))
+    repo = FakeIncidentRepo([(gcm, None), (evp, None)])
+    app.dependency_overrides[get_daily_report] = lambda: DailyReport(
+        incidents=repo, chat=FakeChatModel()
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as c:
+        r = await c.get("/api/reports/daily", params={"date": "2026-07-25", "service": "GCM"})
+
+    app.dependency_overrides.clear()
+
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert len(body["incidents"]) == 1
+    assert body["incidents"][0]["service"] == "GCM"

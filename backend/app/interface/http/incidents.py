@@ -7,7 +7,9 @@ maps domain entities back to response DTOs. No business rules or persistence det
 from __future__ import annotations
 
 import asyncio
+import html
 import json
+import re
 import uuid
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING
@@ -15,36 +17,42 @@ from typing import TYPE_CHECKING
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
+from app.application.incidents.chat import IncidentChat
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.resolve import NoAnalysisToResolveError, ResolveIncident
+from app.domain.ado_connections.entities import AdoConnection
+from app.domain.ado_connections.ports import AdoConnectionRepository
 from app.domain.documents.ports import DocumentRepository
-from app.domain.incidents.entities import Incident
-from app.domain.incidents.ports import IncidentRepository, LogFetcher, TicketClient
+from app.domain.incidents.entities import Analysis, Incident
+from app.domain.incidents.ports import ChatRepository, IncidentRepository, TicketClient
 from app.domain.shared import UnitOfWork
+from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.events import BusProgressReporter, IncidentEventBus
+from app.infrastructure.tickets.ado_client import AdoApiError
 from app.interface.http.deps import (
+    get_ado_connection_repository,
+    get_ado_ticket_client_factory,
+    get_chat_repository,
     get_document_repository,
     get_event_bus,
+    get_incident_chat,
     get_incident_repository,
     get_ingest_incident,
-    get_log_fetcher_factory,
     get_resolve_incident,
-    get_ticket_client,
     get_unit_of_work,
     resolve_background_incident_deps,
 )
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import (
+    ChatMessageRequest,
     IncidentIngestRequest,
-    LogSearchRequest,
     ResolveIncidentRequest,
 )
 from app.interface.http.dto.response import (
+    ChatMessageOut,
     IncidentCreatedResponse,
     IncidentDetail,
     IncidentSummary,
-    LogEventOut,
-    LogSearchResult,
 )
 
 if TYPE_CHECKING:
@@ -89,7 +97,9 @@ async def _run_analysis(app: "FastAPI", bus: IncidentEventBus, incident: Inciden
             try:
                 analysis = await deps.ingest.analyze_incident(incident, reporter=reporter)
             except Exception as exc:  # noqa: BLE001 - any analyzer failure surfaces as "failed"
-                await deps.ingest.incidents.set_status(incident.id, "failed")
+                await deps.ingest.incidents.set_status(
+                    incident.id, "failed", error_message=str(exc)
+                )
                 await deps.ingest.uow.commit()
                 await bus.publish(incident_id, {"event": "failed", "data": {"message": str(exc)}})
                 return
@@ -105,6 +115,35 @@ async def _run_analysis(app: "FastAPI", bus: IncidentEventBus, incident: Inciden
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
+
+
+@router.post("/{incident_id}/analyze", response_model=IncidentCreatedResponse)
+async def analyze_incident_now(
+    incident_id: uuid.UUID,
+    request: Request,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    bus: IncidentEventBus = Depends(get_event_bus),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+) -> IncidentCreatedResponse:
+    """Manually trigger analysis for an incident that hasn't been analyzed yet (status="new") —
+    the CloudWatch-alarm auto-ingest path creates incidents this way so alarm-created incidents
+    don't spend an LLM call until someone reviews the raw alert and asks for it. Reuses
+    `_run_analysis`, the same background-analysis path `POST /api/incidents` schedules."""
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    await repo.set_status(incident_id, "analyzing")
+    incident.status = "analyzing"
+    await uow.commit()
+
+    incident_id_str = str(incident.id)
+    bus.open(incident_id_str)
+    asyncio.create_task(_run_analysis(request.app, bus, incident))
+    return IncidentCreatedResponse(
+        incident_id=incident.id,
+        status=incident.status,
+        stream=f"/api/incidents/{incident.id}/stream",
+    )
 
 
 @router.get("/{incident_id}/stream")
@@ -152,45 +191,40 @@ async def stream_incident(
     return StreamingResponse(_events(), media_type="text/event-stream")
 
 
-@router.post("/{incident_id}/logs/search", response_model=LogSearchResult)
-async def search_incident_logs(
+@router.get("/{incident_id}/chat", response_model=list[ChatMessageOut])
+async def list_chat_messages(
     incident_id: uuid.UUID,
-    body: LogSearchRequest,
     repo: IncidentRepository = Depends(get_incident_repository),
-    documents: DocumentRepository = Depends(get_document_repository),
-    ingest: IngestIncident = Depends(get_ingest_incident),
-    log_fetcher_factory: Callable[[str], LogFetcher] = Depends(get_log_fetcher_factory),
-) -> LogSearchResult:
-    """Fetch real log lines for `log_group` via the incident's project cloud (CloudWatch today),
-    merge them into the incident's context as `sample_logs`, and re-run analysis grounded in the
-    real logs."""
+    chat: ChatRepository = Depends(get_chat_repository),
+) -> list[ChatMessageOut]:
     incident = await repo.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    messages = await chat.list_messages(incident_id)
+    return [mappers.chat_message_out(m) for m in messages]
 
-    log_fetcher = log_fetcher_factory(incident.service)
-    events = await log_fetcher.fetch_logs(
-        body.log_group, body.start, body.end, body.filter_pattern
-    )
-    # Keys match what the analysis prompt renders per line (`ts`, `level`, `message`, see
-    # domain/incidents/prompts.py) and what the hand-pasted samples already use — otherwise every
-    # fetched line reaches the model as "None None <message>".
-    sample_logs = [
-        {"ts": e.timestamp.isoformat(), "level": e.level, "message": e.message} for e in events
-    ]
-    context = {**incident.context, "sample_logs": sample_logs}
 
-    analysis = await ingest.reanalyze_with_context(
-        incident, context=context, log_group=body.log_group
-    )
-    evidence = await documents.evidence_refs(list(analysis.evidence_chunk_ids))
-    return LogSearchResult(
-        log_group=body.log_group,
-        log_events=[
-            LogEventOut(timestamp=e.timestamp, message=e.message, level=e.level) for e in events
-        ],
-        analysis=mappers.analysis_out(analysis, evidence),
-    )
+@router.post("/{incident_id}/chat", response_model=ChatMessageOut)
+async def send_chat_message(
+    incident_id: uuid.UUID,
+    body: ChatMessageRequest,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    incident_chat: IncidentChat = Depends(get_incident_chat),
+    settings: Settings = Depends(get_settings),
+) -> ChatMessageOut:
+    """Chat about one incident, grounded in its raw context — Claude can autonomously call a
+    fetch_logs tool mid-conversation (design spec .claude/specs/2026-08-23-incident-chat-design.md).
+    Only implemented for LLM_PROVIDER=claude_cli — see that spec's "Why claude_cli only" section."""
+    if settings.llm_provider != "claude_cli":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="incident chat requires LLM_PROVIDER=claude_cli",
+        )
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    reply = await incident_chat.send_message(incident, body.message)
+    return mappers.chat_message_out(reply)
 
 
 @router.get("", response_model=list[IncidentSummary])
@@ -254,33 +288,119 @@ async def resolve_incident(
     return mappers.incident_detail(incident, analysis, evidence)
 
 
+_NUMBERED_STEP = re.compile(r"^\d+[.)]\s*(.+)$")
+
+
+def _as_html_paragraph(text: str) -> str:
+    return f"<p>{html.escape(text)}</p>"
+
+
+def _recommended_action_html(text: str) -> str:
+    """Renders numbered "1. foo\\n2. bar" text as an `<ol>`, mirroring the frontend's
+    `parseSteps`/`RecommendedAction` treatment — falls back to a plain paragraph when the text
+    isn't actually a numbered list (fewer than 2 matching lines)."""
+    steps = [
+        m.group(1)
+        for line in text.split("\n")
+        if (m := _NUMBERED_STEP.match(line.strip()))
+    ]
+    if len(steps) < 2:
+        return _as_html_paragraph(text)
+    items = "".join(f"<li>{html.escape(step)}</li>" for step in steps)
+    return f"<ol>{items}</ol>"
+
+
+def _build_ticket_description(
+    analysis: Analysis, incident_id: uuid.UUID, related_ticket_url: str | None
+) -> str:
+    """Azure DevOps's description/repro-steps fields are HTML rich text, not plain text — a
+    plain "\\n\\n"-joined string collapses into one unbroken paragraph in the ADO UI. Build real
+    HTML instead, with each section as its own heading + paragraph (or list, for the numbered
+    recommended-action steps)."""
+    parts = [
+        "<h3>Summary</h3>",
+        _as_html_paragraph(analysis.summary),
+        "<h3>Root cause</h3>",
+        _as_html_paragraph(analysis.root_cause),
+        "<h3>Recommended action</h3>",
+        _recommended_action_html(analysis.recommended_action),
+    ]
+    if related_ticket_url:
+        parts.append("<h3>Related</h3>")
+        parts.append(
+            _as_html_paragraph(
+                f"This looks like a recurrence of a previously ticketed incident — "
+                f"{related_ticket_url}"
+            )
+        )
+    parts.append(f"<p><em>IIM incident: {incident_id}</em></p>")
+    return "".join(parts)
+
+
 @router.post("/{incident_id}/ticket", response_model=IncidentDetail)
 async def create_incident_ticket(
     incident_id: uuid.UUID,
     repo: IncidentRepository = Depends(get_incident_repository),
     documents: DocumentRepository = Depends(get_document_repository),
-    ticket_client: TicketClient = Depends(get_ticket_client),
+    ado_connections: AdoConnectionRepository = Depends(get_ado_connection_repository),
+    ticket_client_factory: Callable[[AdoConnection], TicketClient] = Depends(
+        get_ado_ticket_client_factory
+    ),
     uow: UnitOfWork = Depends(get_unit_of_work),
 ) -> IncidentDetail:
     """Create an Azure DevOps work item for a genuinely new/unseen error and record its URL,
-    moving the incident to status "ticketed"."""
+    moving the incident to status "ticketed". Which ADO org/project to file into is resolved by
+    the incident's own project (`service`) — each internal project (EVP, rxdevs, ...) configures
+    its own Azure DevOps destination on the Settings page (`ado_connections`)."""
     incident = await repo.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    if incident.ticket_url:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This incident already has a ticket: {incident.ticket_url}",
+        )
     analysis = await repo.latest_analysis(incident_id)
     if analysis is None:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="incident has no analysis to file a ticket from",
         )
+    connection = await ado_connections.get_by_project(incident.service)
+    if connection is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No Azure DevOps project configured for '{incident.service}' — "
+                "add one on the Settings page"
+            ),
+        )
+    ticket_client = ticket_client_factory(connection)
 
-    title = f"[{analysis.severity.upper()}] {incident.service}: {analysis.summary}"
-    description = (
-        f"Root cause: {analysis.root_cause}\n\n"
-        f"Recommended action: {analysis.recommended_action}\n\n"
-        f"IIM incident: {incident_id}"
-    )
-    ticket_url = await ticket_client.create_ticket(title, description)
+    # A recurrence of a known issue (see resolve.py's RAG feedback loop) may already have its own
+    # ticket from the earlier occurrence — link the new one to it as "Related" instead of either
+    # silently duplicating work or blocking a genuinely new occurrence from getting its own ticket.
+    related_ticket_url: str | None = None
+    if analysis.known_issue_incident_id is not None:
+        known_incident = await repo.get(analysis.known_issue_incident_id)
+        if known_incident is not None and known_incident.ticket_url:
+            related_ticket_url = known_incident.ticket_url
+
+    # A short, specific identifier (e.g. "ecs-easyrx-prod-external-svc-AlarmLow") reads far better
+    # as a ticket title than the full AI summary sentence — same headline already shown on the
+    # incident detail page. Azure DevOps also rejects System.Title over 255 chars (TF401324), so
+    # this is truncated defensively too even though it's normally well under that.
+    headline = mappers.build_headline(incident.context) or analysis.summary
+    title = f"[{analysis.severity.upper()}] {incident.service}: {headline}"
+    if len(title) > 255:
+        title = title[:252] + "..."
+    description = _build_ticket_description(analysis, incident_id, related_ticket_url)
+    try:
+        ticket_url = await ticket_client.create_ticket(
+            title, description, related_url=related_ticket_url
+        )
+    except AdoApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     await repo.set_ticket_url(incident_id, ticket_url)
     await uow.commit()
     incident.ticket_url = ticket_url

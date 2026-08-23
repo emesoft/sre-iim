@@ -22,6 +22,9 @@ class Incident:
     status: str = "new"  # new | analyzing | analyzed | failed | ticketed | resolved
     log_group: str | None = None
     ticket_url: str | None = None
+    # The reason the last analysis attempt failed (status == "failed"). Cleared whenever a new
+    # attempt starts or succeeds — see IncidentRepository.set_status.
+    error_message: str | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
@@ -64,6 +67,10 @@ class AnalysisDraft:
     # known-issue similarity threshold — "we've seen this before, here's how it was fixed".
     known_issue_incident_id: uuid.UUID | None = None
     known_issue_similarity: float | None = None
+    # Only populated by providers that report usage (currently claude_cli). None means "not
+    # tracked for this provider", not "zero tokens used" — do not treat as 0 in aggregates.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 @dataclass
@@ -81,5 +88,56 @@ class Analysis:
     evidence_chunk_ids: list[uuid.UUID] = field(default_factory=list)
     known_issue_incident_id: uuid.UUID | None = None
     known_issue_similarity: float | None = None
+    # See AnalysisDraft — None means untracked for this provider; a cache HIT is explicitly 0
+    # (no LLM call was made), never a copy of the original MISS's token count.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class UsageByModel:
+    """Total tracked LLM token usage for one `model_id`, real-spend only: cache HITs (no LLM call)
+    and providers that don't report usage (input_tokens IS NULL) are excluded, not zeroed in."""
+
+    model_id: str
+    input_tokens: int
+    output_tokens: int
+    analyses_count: int
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    """One turn in an incident's chat transcript (design spec 2026-08-23). Append-only — never
+    mutated after creation."""
+
+    incident_id: uuid.UUID
+    role: str  # user | assistant
+    content: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    id: uuid.UUID | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ChatSession:
+    """Ties one incident to the Claude Code CLI session id used for `--resume`, so a multi-turn
+    chat doesn't need to resend the full transcript on every message."""
+
+    incident_id: uuid.UUID
+    claude_session_id: uuid.UUID
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ChatTurnResult:
+    """One chat turn's outcome from an `IncidentChatProvider`. `claude_session_id` is the session
+    actually used — it can differ from the one requested if the provider had to start a fresh
+    session (e.g. a stale `--resume` target after the backend container was recreated)."""
+
+    text: str
+    input_tokens: int | None
+    output_tokens: int | None
+    claude_session_id: uuid.UUID

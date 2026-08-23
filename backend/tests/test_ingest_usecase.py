@@ -48,8 +48,9 @@ class FakeIncidentRepo:
         found = [a for a in self.analyses.values() if a.incident_id == incident_id]
         return found[-1] if found else None
 
-    async def set_status(self, incident_id, status):
+    async def set_status(self, incident_id, status, *, error_message=None):
         self.incidents[incident_id].status = status
+        self.incidents[incident_id].error_message = error_message
 
     async def update_context(self, incident_id, *, context, fingerprint, log_group=None):
         incident = self.incidents[incident_id]
@@ -142,6 +143,16 @@ async def test_create_incident_persists_as_analyzing_without_running_the_analyze
     assert incident.id in repo.incidents
     assert analyzer.calls == 0
     assert uow.commits == 1
+
+
+async def test_create_incident_accepts_an_explicit_status():
+    # CloudWatch-alarm-created incidents pass status="new" so they wait for a manual "Analyze
+    # with AI" trigger instead of auto-analyzing (see PollAlarmsJob).
+    usecase, repo, _, analyzer, _, uow = _make()
+    incident = await usecase.create_incident(source="cloudwatch_alarm", context=dict(_CTX), status="new")
+    assert incident.status == "new"
+    assert repo.incidents[incident.id].status == "new"
+    assert analyzer.calls == 0
 
 
 async def test_analyze_incident_runs_analyzer_and_marks_analyzed():

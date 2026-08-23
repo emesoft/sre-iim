@@ -4,9 +4,20 @@ ensures no ORM type leaks past the infrastructure layer.
 
 from __future__ import annotations
 
+from app.domain.ado_connections.entities import AdoConnection
+from app.domain.cloud_connections.entities import CloudConnection, TrackedAlarm
 from app.domain.documents.entities import Document
-from app.domain.incidents.entities import Analysis, Incident
-from app.infrastructure.db.orm import AnalysisRow, DocumentRow, IncidentRow
+from app.domain.incidents.entities import Analysis, ChatMessage, ChatSession, Incident
+from app.domain.projects.entities import Project
+from app.infrastructure.db.orm import (
+    AdoConnectionRow,
+    AnalysisRow,
+    ChatMessageRow,
+    ChatSessionRow,
+    DocumentRow,
+    IncidentRow,
+    ProjectRow,
+)
 
 
 def incident_to_domain(row: IncidentRow) -> Incident:
@@ -18,6 +29,7 @@ def incident_to_domain(row: IncidentRow) -> Incident:
         status=row.status,
         log_group=row.log_group,
         ticket_url=row.ticket_url,
+        error_message=row.error_message,
         id=row.id,
         created_at=row.created_at,
         updated_at=row.updated_at,
@@ -39,6 +51,8 @@ def analysis_to_domain(row: AnalysisRow) -> Analysis:
         known_issue_similarity=(
             float(row.known_issue_similarity) if row.known_issue_similarity is not None else None
         ),
+        input_tokens=row.input_tokens,
+        output_tokens=row.output_tokens,
         id=row.id,
         created_at=row.created_at,
     )
@@ -54,4 +68,71 @@ def document_to_domain(row: DocumentRow) -> Document:
         id=row.id,
         created_at=row.created_at,
         updated_at=row.updated_at,
+    )
+
+
+def cloud_connection_to_domain(row) -> CloudConnection:
+    return CloudConnection(
+        id=row.id,
+        project=row.project,
+        env=row.env,
+        cloud=row.cloud,
+        region=row.region,
+        auth_type=row.auth_type,
+        sso_profile_name=row.sso_profile_name,
+        encrypted_access_key_id=row.encrypted_access_key_id,
+        encrypted_secret_access_key=row.encrypted_secret_access_key,
+        last_poll_at=row.last_poll_at,
+        last_poll_status=row.last_poll_status,
+        last_poll_error=row.last_poll_error,
+        last_poll_alarm_count=row.last_poll_alarm_count,
+        created_at=row.created_at,
+    )
+
+
+def tracked_alarm_to_domain(row) -> TrackedAlarm:
+    return TrackedAlarm(
+        id=row.id,
+        connection_id=row.connection_id,
+        alarm_arn=row.alarm_arn,
+        alarm_name=row.alarm_name,
+        last_state=row.last_state,
+        incident_id=row.incident_id,
+        updated_at=row.updated_at,
+    )
+
+
+def chat_message_to_domain(row: ChatMessageRow) -> ChatMessage:
+    return ChatMessage(
+        incident_id=row.incident_id,
+        role=row.role,
+        content=row.content,
+        input_tokens=row.input_tokens,
+        output_tokens=row.output_tokens,
+        id=row.id,
+        created_at=row.created_at,
+    )
+
+
+def chat_session_to_domain(row: ChatSessionRow) -> ChatSession:
+    return ChatSession(
+        incident_id=row.incident_id,
+        claude_session_id=row.claude_session_id,
+        created_at=row.created_at,
+    )
+
+
+def project_to_domain(row: ProjectRow) -> Project:
+    return Project(id=row.id, name=row.name, created_at=row.created_at)
+
+
+def ado_connection_to_domain(row: AdoConnectionRow) -> AdoConnection:
+    return AdoConnection(
+        id=row.id,
+        project=row.project,
+        org=row.org,
+        ado_project=row.ado_project,
+        encrypted_pat=row.encrypted_pat,
+        work_item_type=row.work_item_type,
+        created_at=row.created_at,
     )

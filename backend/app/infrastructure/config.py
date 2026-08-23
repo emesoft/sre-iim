@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     demo_logs: bool = False
 
     # --- LLM provider (decision 0016) ---
-    llm_provider: str = "bedrock"  # bedrock | deepseek
+    llm_provider: str = "bedrock"  # bedrock | deepseek | claude_cli
     max_rounds: int = 2  # critic corrective-retrieval loop cap
 
     # Bedrock (Claude)
@@ -57,6 +57,13 @@ class Settings(BaseSettings):
     deepseek_model: str = "deepseek-chat"
     deepseek_base_url: str = "https://api.deepseek.com"
 
+    # Claude Code CLI (local demo only — see infrastructure/llm/claude_cli.py). Runs the `claude`
+    # headless CLI as a subprocess, authenticated with a Claude Code subscription token entered on
+    # the Settings page, NOT an Anthropic API key. Anthropic's terms restrict subscription OAuth to
+    # "ordinary use" and CI, not an always-on backend — this provider is for local/demo use only;
+    # switch to `bedrock` or `deepseek` (real API billing) before any production deployment.
+    claude_cli_model: str = "sonnet"
+
     # --- Embedding provider (decision 0016) ---
     embedding_provider: str = "titan"  # titan | jina
     embedding_model: str = "amazon.titan-embed-text-v2:0"
@@ -69,11 +76,19 @@ class Settings(BaseSettings):
     # --- Cache ---
     cache_ttl_seconds: int = 1800  # 30 min, matches Step 0 CACHE_TTL_SECONDS
 
-    # --- Ticketing (Azure DevOps) ---
-    azdo_org: str | None = None
-    azdo_project: str | None = None
-    azdo_pat: str | None = None
-    azdo_work_item_type: str = "Bug"
+    # Ticketing (Azure DevOps) is configured per internal project via the `ado_connections`
+    # table (Settings page), not a global env var — see infrastructure/tickets/ado_client.py.
+
+    # --- Cloud connections (CloudWatch alarm polling) ---
+    secret_encryption_key: str = ""  # Fernet key (44-char urlsafe base64); required to store access keys
+    alarm_poll_interval_minutes: int = 60
+
+    # --- Settings-page admin gate ---
+    # A single shared password (not a per-user account system) — gates /api/cloud-connections/*
+    # and /api/settings/* (AWS connections + the claude_cli token). admin_jwt_secret signs the
+    # session token issued on successful login; unset means the gate can never issue a valid one.
+    admin_password: str | None = None
+    admin_jwt_secret: str = ""
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -15,6 +15,7 @@ export function DocumentList({
   query,
   onRetry,
   onNew,
+  onSelect,
 }: {
   rows: DocumentSummary[]
   loading: boolean
@@ -23,6 +24,7 @@ export function DocumentList({
   query: string
   onRetry: () => void
   onNew: () => void
+  onSelect: (id: string) => void
 }) {
   const q = query.trim().toLowerCase()
   const filtered = q
@@ -64,9 +66,11 @@ export function DocumentList({
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
       {filtered.map((d) => (
-        <div
+        <button
           key={d.id}
-          className="group rounded-2xl border border-hair bg-surface p-5 shadow-card transition duration-300 hover:-translate-y-0.5 hover:shadow-card-hover"
+          type="button"
+          onClick={() => onSelect(d.id)}
+          className="group w-full rounded-2xl border border-hair bg-surface p-5 text-left shadow-card transition duration-300 hover:-translate-y-0.5 hover:shadow-card-hover"
         >
           <div className="flex items-start justify-between gap-3">
             <span
@@ -102,7 +106,7 @@ export function DocumentList({
           <div className="mt-3 border-t border-hair pt-2.5 text-[11px] text-muted">
             Indexed {timeAgo(d.created_at)}
           </div>
-        </div>
+        </button>
       ))}
     </div>
   )

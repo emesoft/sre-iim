@@ -65,9 +65,9 @@ class DailyReport:
     incidents: IncidentRepository
     chat: ChatModel
 
-    async def generate(self, report_date: date) -> DailyReportResult:
+    async def generate(self, report_date: date, *, service: str | None = None) -> DailyReportResult:
         start, end = _day_bounds_utc(report_date)
-        rows = await self.incidents.list_by_date_range(start, end)
+        rows = await self.incidents.list_by_date_range(start, end, service=service)
 
         report_rows = [_to_report_incident(inc, an) for inc, an in rows]
         counts_by_severity = Counter(r.severity or "unknown" for r in report_rows)

@@ -25,6 +25,20 @@ class DocumentRepository(Protocol):
         """Return each document with its chunk count, newest first."""
         ...
 
+    async def get_with_content(self, document_id: uuid.UUID) -> tuple[Document, list[str]] | None:
+        """The document plus its chunks' text, in order. `None` if not found."""
+        ...
+
+    async def update(
+        self, document_id: uuid.UUID, document: Document, chunks: list[EmbeddedChunk]
+    ) -> Document | None:
+        """Replace a document's metadata and its entire chunk set (re-chunked/re-embedded by the
+        caller). `None` if `document_id` doesn't exist."""
+        ...
+
+    async def delete(self, document_id: uuid.UUID) -> None:
+        ...
+
     async def evidence_refs(self, chunk_ids: list[uuid.UUID]) -> list[EvidenceRef]:
         """Resolve chunk ids to (source_type, document title) refs, preserving order."""
         ...

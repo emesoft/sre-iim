@@ -14,6 +14,7 @@ import { Overview } from './pages/Overview'
 import { Incidents } from './pages/Incidents'
 import { KnowledgeBase } from './pages/KnowledgeBase'
 import { Reports } from './pages/Reports'
+import { Settings } from './pages/Settings'
 import { NewIncidentModal } from './features/incidents/NewIncidentModal'
 import { NewDocumentModal } from './features/documents/NewDocumentModal'
 
@@ -66,7 +67,7 @@ function Dashboard({
       <Button onClick={() => setShowDoc(true)}>
         <Plus size={16} /> New document
       </Button>
-    ) : view === 'reports' ? undefined : (
+    ) : view === 'reports' || view === 'settings' ? undefined : (
       <Button onClick={() => setShowIncident(true)}>
         <Plus size={16} /> New incident
       </Button>
@@ -108,7 +109,8 @@ function Dashboard({
             {view === 'knowledge' && (
               <KnowledgeBase data={data} query={query} onRetry={refresh} onNew={() => setShowDoc(true)} />
             )}
-            {view === 'reports' && <Reports />}
+            {view === 'reports' && <Reports incidents={data.incidents} />}
+            {view === 'settings' && <Settings />}
           </div>
         </main>
       </div>

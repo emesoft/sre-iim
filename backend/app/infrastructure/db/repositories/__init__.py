@@ -3,6 +3,13 @@
 Re-exported so callers can `from app.infrastructure.db.repositories import SqlAlchemy...`.
 """
 
+from app.infrastructure.db.repositories.ado_connections import SqlAlchemyAdoConnectionRepository
+from app.infrastructure.db.repositories.app_settings import SqlAlchemyAppSettingsRepository
+from app.infrastructure.db.repositories.chat import SqlAlchemyChatRepository
+from app.infrastructure.db.repositories.cloud_connections import (
+    SqlAlchemyCloudConnectionRepository,
+    SqlAlchemyTrackedAlarmRepository,
+)
 from app.infrastructure.db.repositories.documents import (
     SqlAlchemyDocumentRepository,
     SqlAlchemyRetriever,
@@ -11,6 +18,7 @@ from app.infrastructure.db.repositories.incidents import (
     SqlAlchemyAnalysisCacheRepository,
     SqlAlchemyIncidentRepository,
 )
+from app.infrastructure.db.repositories.projects import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.unit_of_work import SqlAlchemyUnitOfWork
 
 __all__ = [
@@ -19,4 +27,10 @@ __all__ = [
     "SqlAlchemyDocumentRepository",
     "SqlAlchemyRetriever",
     "SqlAlchemyUnitOfWork",
+    "SqlAlchemyCloudConnectionRepository",
+    "SqlAlchemyTrackedAlarmRepository",
+    "SqlAlchemyAppSettingsRepository",
+    "SqlAlchemyChatRepository",
+    "SqlAlchemyAdoConnectionRepository",
+    "SqlAlchemyProjectRepository",
 ]

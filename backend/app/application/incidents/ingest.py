@@ -42,8 +42,15 @@ class IngestIncident:
     uow: UnitOfWork
     cache_ttl_seconds: int
 
-    async def create_incident(self, *, source: str, context: dict) -> Incident:
-        """Persist a new incident (status="analyzing") and commit. No analysis yet.
+    async def create_incident(
+        self, *, source: str, context: dict, status: str = "analyzing"
+    ) -> Incident:
+        """Persist a new incident and commit. No analysis yet.
+
+        `status` defaults to "analyzing" — the caller is expected to trigger analysis right after
+        (the manual UI create flow, `POST /api/incidents`). Pass status="new" for a caller that
+        wants the incident to wait for an explicit analyze trigger instead (CloudWatch-alarm
+        auto-created incidents — see PollAlarmsJob).
 
         Precondition: `context['service']` is present (validated at the interface boundary).
         """
@@ -53,7 +60,7 @@ class IngestIncident:
                 source=source,
                 fingerprint=fingerprint(context),
                 context=context,
-                status="analyzing",
+                status=status,
             )
         )
         await self.uow.commit()
@@ -87,6 +94,8 @@ class IngestIncident:
                     evidence_chunk_ids=list(draft.evidence_chunk_ids),
                     known_issue_incident_id=draft.known_issue_incident_id,
                     known_issue_similarity=draft.known_issue_similarity,
+                    input_tokens=draft.input_tokens,
+                    output_tokens=draft.output_tokens,
                 )
             )
             await self.cache.put(
@@ -131,7 +140,11 @@ class IngestIncident:
 
 
 def _copy_analysis(incident_id, source: Analysis, *, cache_state: str) -> Analysis:
-    """A fresh Analysis for `incident_id` copying a cached analysis's fields."""
+    """A fresh Analysis for `incident_id` copying a cached analysis's fields.
+
+    `input_tokens`/`output_tokens` are explicitly 0, not copied from `source` — a cache hit makes
+    no LLM call, so no tokens are spent this time; copying the original MISS's count would double
+    -count it in any usage total."""
     return Analysis(
         incident_id=incident_id,
         severity=source.severity,
@@ -144,4 +157,6 @@ def _copy_analysis(incident_id, source: Analysis, *, cache_state: str) -> Analys
         evidence_chunk_ids=list(source.evidence_chunk_ids),
         known_issue_incident_id=source.known_issue_incident_id,
         known_issue_similarity=source.known_issue_similarity,
+        input_tokens=0,
+        output_tokens=0,
     )

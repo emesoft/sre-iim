@@ -2,17 +2,17 @@ import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Coins,
   Cpu,
   FileSearch,
   FileText,
   Gauge,
   MousePointerClick,
-  Search,
   Sparkles,
   Ticket,
 } from 'lucide-react'
 import { api, errText, isUnreachable } from '../../lib/api'
-import type { IncidentDetail as Detail, LogSearchResult } from '../../lib/types'
+import type { IncidentCreated, IncidentDetail as Detail } from '../../lib/types'
 import { Card } from '../../components/ui/Card'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
@@ -26,18 +26,7 @@ import { EmptyState } from '../../components/ui/EmptyState'
 import { ErrorState } from '../../components/ui/ErrorState'
 import { incidentRef } from '../../lib/format'
 import { useIncidentStream } from '../../lib/useIncidentStream'
-
-/** Best-effort guess at a log group from the incident's own context (e.g. the `ecs` section). */
-function guessLogGroup(context: Record<string, unknown>): string {
-  const ecs = context.ecs as { log_group?: string } | undefined
-  return ecs?.log_group ?? ''
-}
-
-/** `YYYY-MM-DDTHH:mm` for a `datetime-local` input, in local time. */
-function toLocalInputValue(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
-}
+import { ChatPanel } from './ChatPanel'
 
 export function IncidentDetail({
   incidentId,
@@ -118,8 +107,12 @@ export function IncidentDetail({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <Eyebrow>{incidentRef(d.id)}</Eyebrow>
+          <h2 className="mt-1.5 font-display text-2xl font-extrabold tracking-tight text-ink">
+            {d.headline || d.service}
+          </h2>
           <div className="mt-1.5 flex flex-wrap items-center gap-2">
-            <h2 className="font-display text-2xl font-extrabold tracking-tight text-ink">{d.service}</h2>
+            <Badge tone="neutral">{d.service}</Badge>
+            {d.env && <Badge tone="neutral">{d.env}</Badge>}
             {a && <SeverityBadge severity={a.severity} />}
             <StatusBadge status={d.status} />
             {a && <Badge tone={a._cache === 'HIT' ? 'success' : 'neutral'}>cache {a._cache}</Badge>}
@@ -140,6 +133,13 @@ export function IncidentDetail({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
+          {(d.status === 'new' || d.status === 'failed') && (
+            <AnalyzeButton
+              incidentId={d.id}
+              retry={d.status === 'failed'}
+              onAnalyzeStarted={() => setD({ ...d, status: 'analyzing' })}
+            />
+          )}
           {a && !a.known_issue && !d.ticket_url && (
             <TicketButton incident={d} onTicketed={(next) => setD(next)} />
           )}
@@ -174,7 +174,22 @@ export function IncidentDetail({
       )}
 
       {/* Analysis */}
-      {analyzing && !stream.result && !stream.error ? (
+      {d.status === 'new' ? (
+        <Card className="p-5">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={15} className="text-sev-medium" />
+            <h3 className="font-display text-sm font-bold text-ink">Alarm fired — not analyzed yet</h3>
+          </div>
+          <p className="mt-3 whitespace-pre-wrap text-sm text-ink-2">
+            {typeof d.context.alert === 'string' ? d.context.alert : 'No alarm details in context.'}
+          </p>
+          <p className="mt-3 text-xs text-muted">
+            This incident was created automatically from a CloudWatch alarm and hasn't been sent to
+            the AI yet — review the raw alert above, then click "Analyze with AI" if you want a
+            root-cause analysis.
+          </p>
+        </Card>
+      ) : analyzing && !stream.result && !stream.error ? (
         <Card className="p-5">
           <div className="flex items-center gap-2">
             <Sparkles size={15} className="text-accent" />
@@ -198,7 +213,9 @@ export function IncidentDetail({
         <Card className="divide-y divide-hair">
           <Section label="Summary">{a.summary}</Section>
           <Section label="Root cause">{a.root_cause}</Section>
-          <Section label="Recommended action">{a.recommended_action}</Section>
+          <Section label="Recommended action">
+            <RecommendedAction text={a.recommended_action} />
+          </Section>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3.5 text-xs text-muted">
             <span className="inline-flex items-center gap-1.5">
               <Gauge size={13} /> confidence{' '}
@@ -207,6 +224,17 @@ export function IncidentDetail({
             <span className="inline-flex items-center gap-1.5">
               <Cpu size={13} /> <span className="font-mono text-ink-2">{a.model_id}</span>
             </span>
+            {/* A cache HIT is always 0/0 by design (no LLM call was made) — the cache badge
+                above already communicates that, so only show a token count when it reflects a
+                real call (cache MISS), otherwise "0 in / 0 out" reads as a confusing error. */}
+            {a._cache === 'MISS' && a.input_tokens !== null && a.output_tokens !== null && (
+              <span className="inline-flex items-center gap-1.5">
+                <Coins size={13} />
+                <span className="font-mono text-ink-2">
+                  {a.input_tokens.toLocaleString()} in / {a.output_tokens.toLocaleString()} out
+                </span>
+              </span>
+            )}
           </div>
         </Card>
       ) : d.status === 'failed' ? (
@@ -223,7 +251,7 @@ export function IncidentDetail({
             </span>
             <h3 className="font-display text-base font-bold text-ink">Analysis failed</h3>
             <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink-2">
-              {stream.error ?? 'The AI analysis could not complete.'}
+              {stream.error ?? d.error_message ?? 'The AI analysis could not complete.'}
             </p>
           </div>
         </Card>
@@ -260,8 +288,8 @@ export function IncidentDetail({
         </Card>
       )}
 
-      {/* CloudWatch log search */}
-      <LogSearchPanel incident={d} onSearched={(next) => setD(next)} />
+      {/* Chat */}
+      <ChatPanel incident={d} key={d.id} />
 
       {/* Raw context */}
       <details className="group rounded-2xl border border-hair bg-surface">
@@ -280,7 +308,69 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="px-5 py-4">
       <Eyebrow>{label}</Eyebrow>
-      <p className="mt-1.5 leading-relaxed text-ink">{children}</p>
+      <div className="mt-1.5 whitespace-pre-wrap leading-relaxed text-ink">{children}</div>
+    </div>
+  )
+}
+
+/** Splits "1. foo\n2. bar" into ["foo", "bar"]; returns null for anything that isn't a
+ * multi-step numbered list (a single plain-sentence action, or older un-numbered analyses),
+ * so those still render as a normal paragraph. */
+function parseSteps(text: string): string[] | null {
+  const steps = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.match(/^\d+[.)]\s*(.+)$/)?.[1])
+    .filter((step): step is string => Boolean(step))
+  return steps.length >= 2 ? steps : null
+}
+
+function RecommendedAction({ text }: { text: string }) {
+  const steps = parseSteps(text)
+  if (!steps) return <>{text}</>
+  return (
+    <ol className="space-y-2">
+      {steps.map((step, i) => (
+        <li key={i} className="flex gap-2.5">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] font-bold text-accent">
+            {i + 1}
+          </span>
+          <span className="flex-1">{step}</span>
+        </li>
+      ))}
+    </ol>
+  )
+}
+
+function AnalyzeButton({
+  incidentId,
+  retry,
+  onAnalyzeStarted,
+}: {
+  incidentId: string
+  retry?: boolean
+  onAnalyzeStarted: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const analyze = () => {
+    setLoading(true)
+    setErr(null)
+    api
+      .post<IncidentCreated>(`/api/incidents/${incidentId}/analyze`, {})
+      .then(onAnalyzeStarted)
+      .catch((e) => setErr(errText(e)))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button onClick={analyze} disabled={loading}>
+        <Sparkles size={15} /> {loading ? 'Starting…' : retry ? 'Retry analysis' : 'Analyze with AI'}
+      </Button>
+      {err && <p className="max-w-[220px] text-right text-xs text-sev-critical">{err}</p>}
     </div>
   )
 }
@@ -372,118 +462,6 @@ function ResolveButton({
         </form>
       </Modal>
     </>
-  )
-}
-
-function LogSearchPanel({
-  incident,
-  onSearched,
-}: {
-  incident: Detail
-  onSearched: (next: Detail) => void
-}) {
-  const created = new Date(incident.created_at)
-  const [logGroup, setLogGroup] = useState(
-    incident.log_group ?? guessLogGroup(incident.context),
-  )
-  const [start, setStart] = useState(toLocalInputValue(new Date(created.getTime() - 30 * 60_000)))
-  const [end, setEnd] = useState(toLocalInputValue(new Date(created.getTime() + 30 * 60_000)))
-  const [loading, setLoading] = useState(false)
-  const [err, setErr] = useState<string | null>(null)
-  const [result, setResult] = useState<LogSearchResult | null>(null)
-
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!logGroup.trim()) return
-    setLoading(true)
-    setErr(null)
-    api
-      .post<LogSearchResult>(`/api/incidents/${incident.id}/logs/search`, {
-        log_group: logGroup.trim(),
-        start: new Date(start).toISOString(),
-        end: new Date(end).toISOString(),
-      })
-      .then((r) => {
-        setResult(r)
-        onSearched({
-          ...incident,
-          log_group: r.log_group,
-          analysis: r.analysis,
-          // Same keys the backend persists into context (ts/level/message), not the wire DTO's —
-          // otherwise the optimistic copy disagrees with what a refetch returns.
-          context: {
-            ...incident.context,
-            sample_logs: r.log_events.map((e) => ({
-              ts: e.timestamp,
-              level: e.level,
-              message: e.message,
-            })),
-          },
-        })
-      })
-      .catch((e) => setErr(errText(e)))
-      .finally(() => setLoading(false))
-  }
-
-  return (
-    <Card className="p-5">
-      <div className="flex items-center gap-2">
-        <Search size={15} className="text-accent" />
-        {/* Provider-neutral: the backend resolves the source (CloudWatch, or the demo source
-            when DEMO_LOGS is on), so the label must not claim one of them. */}
-        <h3 className="font-display text-sm font-bold text-ink">Search logs</h3>
-      </div>
-      <form onSubmit={submit} className="mt-3 flex flex-wrap items-end gap-3">
-        <label className="flex min-w-[220px] flex-1 flex-col gap-1 text-xs font-medium text-ink-2">
-          Log group
-          <input
-            value={logGroup}
-            onChange={(e) => setLogGroup(e.target.value)}
-            placeholder="/ecs/prod-storefront-logs"
-            className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
-          Start
-          <input
-            type="datetime-local"
-            value={start}
-            onChange={(e) => setStart(e.target.value)}
-            className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-xs font-medium text-ink-2">
-          End
-          <input
-            type="datetime-local"
-            value={end}
-            onChange={(e) => setEnd(e.target.value)}
-            className="rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-          />
-        </label>
-        <Button type="submit" disabled={loading || !logGroup.trim()}>
-          {loading ? 'Searching…' : 'Search logs'}
-        </Button>
-      </form>
-
-      {err && <p className="mt-3 text-sm text-sev-critical">{err}</p>}
-
-      {result && (
-        <div className="mt-4 space-y-2">
-          <div className="flex items-center gap-2 text-xs text-muted">
-            <Badge tone="accent">{result.log_events.length} lines</Badge>
-            <span className="font-mono">{result.log_group}</span>
-          </div>
-          <pre className="max-h-64 overflow-auto rounded-xl bg-surface-2 p-3 font-mono text-xs leading-relaxed text-ink-2">
-            {result.log_events.length === 0
-              ? 'No matching log lines in this window.'
-              : result.log_events
-                  .map((e) => `${e.timestamp}  ${(e.level ?? '-').padEnd(5)}  ${e.message}`)
-                  .join('\n')}
-          </pre>
-        </div>
-      )}
-    </Card>
   )
 }
 

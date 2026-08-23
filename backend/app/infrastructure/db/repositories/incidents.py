@@ -5,12 +5,29 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.domain.incidents.entities import Analysis, Incident
+from app.domain.incidents.entities import Analysis, Incident, UsageByModel
 from app.infrastructure.db.orm import AnalysisCacheRow, AnalysisRow, IncidentRow
 from app.infrastructure.db.repositories.mappers import analysis_to_domain, incident_to_domain
+
+
+def _latest_analysis_id_subquery():
+    """The id of the most recently created `Analysis` for a given incident — a correlated
+    subquery joined against `IncidentRow.id`, so `list()`/`list_by_date_range()` return exactly
+    one row per incident even when it has been re-analyzed multiple times (e.g. a manual
+    "Analyze with AI" retry, or a cache HIT re-run). Joining `AnalysisRow` directly on
+    `incident_id` without this would fan out one list row per analysis row — the same ordering
+    `latest_analysis()` already uses for a single incident, kept consistent here."""
+    return (
+        select(AnalysisRow.id)
+        .where(AnalysisRow.incident_id == IncidentRow.id)
+        .order_by(AnalysisRow.created_at.desc())
+        .limit(1)
+        .correlate(IncidentRow)
+        .scalar_subquery()
+    )
 
 
 class SqlAlchemyIncidentRepository:
@@ -47,7 +64,7 @@ class SqlAlchemyIncidentRepository:
     ) -> list[tuple[Incident, Analysis | None]]:
         stmt = (
             select(IncidentRow, AnalysisRow)
-            .join(AnalysisRow, AnalysisRow.incident_id == IncidentRow.id, isouter=True)
+            .join(AnalysisRow, AnalysisRow.id == _latest_analysis_id_subquery(), isouter=True)
             .order_by(IncidentRow.created_at.desc())
         )
         if service:
@@ -65,14 +82,16 @@ class SqlAlchemyIncidentRepository:
         ]
 
     async def list_by_date_range(
-        self, start: datetime, end: datetime
+        self, start: datetime, end: datetime, *, service: str | None = None
     ) -> list[tuple[Incident, Analysis | None]]:
         stmt = (
             select(IncidentRow, AnalysisRow)
-            .join(AnalysisRow, AnalysisRow.incident_id == IncidentRow.id, isouter=True)
+            .join(AnalysisRow, AnalysisRow.id == _latest_analysis_id_subquery(), isouter=True)
             .where(IncidentRow.created_at >= start, IncidentRow.created_at < end)
             .order_by(IncidentRow.created_at.desc())
         )
+        if service:
+            stmt = stmt.where(IncidentRow.service == service)
         rows = (await self._s.execute(stmt)).all()
         return [
             (incident_to_domain(inc), analysis_to_domain(an) if an is not None else None)
@@ -92,6 +111,8 @@ class SqlAlchemyIncidentRepository:
             evidence_chunk_ids=list(analysis.evidence_chunk_ids),
             known_issue_incident_id=analysis.known_issue_incident_id,
             known_issue_similarity=analysis.known_issue_similarity,
+            input_tokens=analysis.input_tokens,
+            output_tokens=analysis.output_tokens,
         )
         self._s.add(row)
         await self._s.flush()
@@ -107,10 +128,32 @@ class SqlAlchemyIncidentRepository:
         )
         return analysis_to_domain(row) if row is not None else None
 
-    async def set_status(self, incident_id: uuid.UUID, status: str) -> None:
+    async def usage_by_model(self) -> list[UsageByModel]:
+        stmt = (
+            select(
+                AnalysisRow.model_id,
+                func.sum(AnalysisRow.input_tokens),
+                func.sum(AnalysisRow.output_tokens),
+                func.count(),
+            )
+            .where(AnalysisRow.cache_state == "MISS", AnalysisRow.input_tokens.is_not(None))
+            .group_by(AnalysisRow.model_id)
+        )
+        rows = (await self._s.execute(stmt)).all()
+        return [
+            UsageByModel(
+                model_id=model_id, input_tokens=int(i or 0), output_tokens=int(o or 0), analyses_count=c
+            )
+            for model_id, i, o, c in rows
+        ]
+
+    async def set_status(
+        self, incident_id: uuid.UUID, status: str, *, error_message: str | None = None
+    ) -> None:
         row = await self._s.get(IncidentRow, incident_id)
         if row is not None:
             row.status = status
+            row.error_message = error_message
 
     async def set_ticket_url(self, incident_id: uuid.UUID, ticket_url: str) -> None:
         row = await self._s.get(IncidentRow, incident_id)

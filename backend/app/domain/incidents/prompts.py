@@ -45,7 +45,7 @@ Return ONLY a single valid JSON object, with NO explanation or markdown, followi
   "severity": "critical" | "warning" | "info",
   "summary": "1-2 sentences: what is happening and the impact",
   "root_cause": "root-cause reasoning with evidence and timestamps; if uncertain, state the most likely hypothesis with a confidence level",
-  "recommended_action": "concrete action to take now, prioritizing stopping the damage first",
+  "recommended_action": "concrete action(s) to take now, prioritizing stopping the damage first. If there is more than one distinct step, put EACH step on its own line, numbered '1. ', '2. ', etc. A single obvious action can stay as one plain sentence.",
   "confidence": "high" | "medium" | "low"
 }"""
 

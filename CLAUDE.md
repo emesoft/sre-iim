@@ -8,10 +8,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 automatically-collected incident context bundle into an LLM (AWS Bedrock, Claude models) and returns a
 structured triage analysis as JSON: `severity`, `summary`, `root_cause`, `recommended_action`, `confidence`.
 
-The project is being built in numbered steps. Only **Step 0** exists today: `backend/ai/analyze_incident.py`, a
-standalone CLI that needs no AWS infrastructure other than Bedrock access. Later steps (referenced in code
-and `.gitignore` but **not yet built**) add persistence and a UI — see Roadmap below. Do not assume that
-infrastructure exists; check before referencing it.
+The full stack now exists: FastAPI backend (`backend/app/`) with pgvector-backed persistence, a React
+frontend (`frontend/`), and a LangGraph multi-agent analysis pipeline — `backend/ai/analyze_incident.py` was
+the original Step-0 prototype and is superseded by `backend/app/infrastructure/graph/analyzer.py` /
+`backend/app/infrastructure/llm/` for anything running through the app. Current backend routes
+(`backend/app/interface/http/`):
+
+- `POST /api/incidents`, `GET /api/incidents`, `GET /api/incidents/{id}` — ingest / list / detail
+- `GET /api/incidents/{id}/stream` — **SSE**, live analysis progress (implemented, not just planned)
+- `POST /api/incidents/{id}/resolve` — mark resolved, feeds back into RAG as a known-issue case
+- `POST /api/incidents/{id}/ticket` — creates a **real** Azure DevOps work item via PAT (not a stub)
+- `GET /api/incidents/{id}/chat`, `POST /api/incidents/{id}/chat` — chat about an incident; Claude
+  can autonomously call a `fetch_logs` tool via MCP tool-calling (`claude_cli` provider only — 501
+  otherwise)
+- `POST /api/documents`, `GET /api/documents` — knowledge-base ingest (chunk + embed) / list
+- `GET /api/reports/daily` — Slack-markdown daily digest
+- `GET /healthz`
+
+`ANALYSIS_MODE` (docker-compose.yml) selects the analyzer: `single` (default) = one RAG-augmented LLM call;
+`graph` = LangGraph multi-agent (triage → retrieve → diagnose → critic → loop up to `MAX_ROUNDS` →
+synthesize) with fast/main model tiering. 21 test files under `backend/tests/` cover HTTP routes, SSE, the
+graph analyzer, RAG, daily report, and the ADO client.
 
 ## Running
 
@@ -49,8 +66,9 @@ hit (0 tokens). There is no test suite yet (`.gitignore` anticipates `pytest`).
 
 A **Vite + React + TypeScript + Tailwind** single-page app that exercises the backend REST API
 end-to-end: submit incidents, seed knowledge documents, and view the AI analysis plus the evidence
-chunks it cited. It is a **local test/development UI** for iterating on the pipeline — deliberately
-lean (no SSE streaming, no auth, no automated tests). Full design and task breakdown live in
+chunks it cited. It consumes the backend's SSE stream live (`src/lib/useIncidentStream.ts`) for analysis
+progress. It is a **local test/development UI** for iterating on the pipeline — deliberately lean (no
+auth, no automated tests). Full design and task breakdown live in
 `.claude/specs/FRONTEND_LOCAL.md` and `.claude/specs/FRONTEND_LOCAL_PLAN.md`; run instructions are in
 `frontend/README.md`.
 
@@ -172,18 +190,20 @@ and why, not a long Summary/Test-plan write-up.
 
 ## Roadmap (planned, not yet implemented)
 
-Referenced by code comments and `.gitignore`, but no files exist for these yet — treat as direction, not
-current state:
-
 - **Step 4**: replace the in-memory `_CACHE` with **DynamoDB + TTL**.
 - **Serverless / AWS CDK** deployment (`.serverless/`, `cdk.out/` in `.gitignore`).
 - `infra/` was renamed to **`iac/`** — it will hold Terraform once infrastructure-as-code work starts
   (not written yet, so the folder is currently empty). `docker-compose.yml` moved to the repo root,
   alongside `backend/` and `frontend/`, so `docker compose up` needs no `-f` flag.
-
-The **React frontend** now exists as `frontend/` (a local test UI — see the Frontend section above),
-superseding the originally-planned `board/` location. Streaming (SSE), auth, and a polished production
-board are still to come per `.claude/specs/SPEC.md`.
+- **Auth** — the frontend `Login` page is UI-only today, no backend auth wired up yet.
+- **AWS SSO connect-in-app** — cloud connections currently require an SSO profile pre-configured on
+  the host's `~/.aws/config` (login via `aws sso login --profile <name>` outside the app), or a
+  pasted access key. A future "Connect via SSO" button could drive the AWS SSO OIDC device-
+  authorization flow directly from Settings (open a verification URL, poll for the token, list
+  accounts/roles to pick from, store + auto-refresh the token) — technically sound (this is exactly
+  how `aws sso login` itself works, no AWS ToS concern), but a real subsystem: short-lived tokens
+  need refresh handling, and picking an account/role needs new UI. Scope it as its own
+  brainstorm/spec/plan when actually needed.
 
 The full Phase-1 design (problem/goals, architecture + ADRs, DynamoDB data model, build plan, open
 questions) is written up in `.claude/specs/`: `SPEC.md`, `ARCHITECTURE.md`, `DATA_MODEL.md`, `PLAN.md`,

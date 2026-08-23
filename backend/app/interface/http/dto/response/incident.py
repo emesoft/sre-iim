@@ -35,6 +35,9 @@ class AnalysisOut(BaseModel):
     cache_state: str = Field(serialization_alias="_cache")  # HIT | MISS
     evidence: list[dict] = Field(default_factory=list)
     known_issue: KnownIssueOut | None = None
+    # None means "not tracked for this provider" (Bedrock/DeepSeek); a cache HIT is explicitly 0.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class IncidentSummary(BaseModel):
@@ -48,6 +51,13 @@ class IncidentSummary(BaseModel):
     created_at: datetime
     severity: str | None = None
     summary: str | None = None
+    # Short human-readable signal extracted from raw context (e.g. the CloudWatch alarm name) —
+    # every incident from the same connection shares `service`, so the list needs something more
+    # specific to tell rows apart before an AI summary exists.
+    headline: str | None = None
+    # From context.env (set by PollAlarmsJob from the connection's env) — None for incidents
+    # created before this field existed, or created without a cloud connection.
+    env: str | None = None
 
 
 class IncidentDetail(BaseModel):
@@ -64,19 +74,21 @@ class IncidentDetail(BaseModel):
     log_group: str | None = None
     ticket_url: str | None = None
     analysis: AnalysisOut | None = None
+    # See IncidentSummary — same fields, repeated here since the detail view doesn't otherwise
+    # derive them from `context` itself.
+    headline: str | None = None
+    env: str | None = None
+    # The reason the last analysis attempt failed (status == "failed"); persisted so it survives
+    # a page reload, not just visible to whoever was watching the SSE stream live.
+    error_message: str | None = None
 
 
-class LogEventOut(BaseModel):
-    """One log line returned by a log search."""
+class ChatMessageOut(BaseModel):
+    """One row in `GET /api/incidents/{id}/chat`, and the response of `POST .../chat`."""
 
-    timestamp: datetime
-    message: str
-    level: str | None = None
-
-
-class LogSearchResult(BaseModel):
-    """`POST /api/incidents/{id}/logs/search` response: fetched log lines + the re-run analysis."""
-
-    log_group: str
-    log_events: list[LogEventOut]
-    analysis: AnalysisOut
+    id: uuid.UUID
+    role: str  # user | assistant
+    content: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    created_at: datetime

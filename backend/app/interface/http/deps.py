@@ -12,24 +12,48 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from fastapi import Depends
+from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.application.documents.ingest import IngestDocument
+from app.application.ado_connections.manage import ManageAdoConnections
+from app.application.cloud_connections.manage import ManageCloudConnections
+from app.application.cloud_connections.poll_alarms import PollAlarmsJob
+from app.application.documents.ingest import IngestDocument, UpdateDocument
+from app.application.documents.seed import SeedDefaultDocuments
+from app.application.incidents.chat import IncidentChat
 from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
+from app.application.projects.manage import ManageProjects
+from app.domain.ado_connections.entities import AdoConnection
+from app.domain.ado_connections.ports import AdoConnectionRepository
+from app.domain.cloud_connections.ports import AlarmFetcher, CloudConnectionRepository
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
-from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher, TicketClient
+from app.domain.incidents.ports import (
+    Analyzer,
+    ChatRepository,
+    IncidentRepository,
+    LogFetcher,
+    TicketClient,
+)
 from app.domain.llm import ChatModel
+from app.domain.projects.ports import ProjectRepository
 from app.infrastructure.clock import SystemClock
+from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
+from app.infrastructure.cloud.credential_resolver import CredentialResolver
 from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.db.repositories import (
+    SqlAlchemyAdoConnectionRepository,
     SqlAlchemyAnalysisCacheRepository,
+    SqlAlchemyAppSettingsRepository,
+    SqlAlchemyChatRepository,
+    SqlAlchemyCloudConnectionRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyIncidentRepository,
+    SqlAlchemyProjectRepository,
     SqlAlchemyRetriever,
+    SqlAlchemyTrackedAlarmRepository,
     SqlAlchemyUnitOfWork,
 )
 from app.infrastructure.db.session import SessionLocal
@@ -37,10 +61,13 @@ from app.infrastructure.events import IncidentEventBus, default_bus
 from app.infrastructure.graph.analyzer import GraphAnalyzer
 from app.infrastructure.llm.bedrock_analyzer import BedrockAnalyzer
 from app.infrastructure.llm.chat import BedrockChatModel, DeepSeekChatModel
+from app.infrastructure.llm.claude_cli import ClaudeCliAnalyzer, ClaudeCliChat, ClaudeCliChatModel
 from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
 from app.infrastructure.logs.factory import build_log_fetcher
+from app.infrastructure.security.admin_auth import verify_admin_token
+from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.tickets.ado_client import AdoTicketClient
 
 if TYPE_CHECKING:
@@ -57,6 +84,8 @@ def select_base_analyzer(settings: Settings) -> Analyzer:
     """Pick the single-call provider analyzer from config (decision 0016). Pure — unit-testable."""
     if settings.llm_provider == "deepseek":
         return DeepSeekAnalyzer(settings)
+    if settings.llm_provider == "claude_cli":
+        return ClaudeCliAnalyzer(settings)
     return BedrockAnalyzer(settings)
 
 
@@ -69,6 +98,8 @@ def select_chat_model(settings: Settings) -> ChatModel:
     """Pick the ChatModel adapter (graph node LLM) from config. Pure — unit-testable."""
     if settings.llm_provider == "deepseek":
         return DeepSeekChatModel(settings)
+    if settings.llm_provider == "claude_cli":
+        return ClaudeCliChatModel(settings)
     return BedrockChatModel(settings)
 
 
@@ -90,6 +121,13 @@ def get_incident_repository(
     return SqlAlchemyIncidentRepository(session)
 
 
+# Below this cosine similarity, a retrieved chunk is noise, not evidence — cuts token spend on
+# irrelevant runbooks and stops the AI citing something unrelated as if it were grounded evidence.
+# Picked empirically: a genuinely relevant runbook scored ~0.52 against a real incident's alert
+# text, while unrelated ones in the same knowledge base scored ~0.18-0.39.
+RETRIEVAL_MIN_SIMILARITY = 0.4
+
+
 def get_analyzer(
     session: AsyncSession = Depends(get_session),
     base: Analyzer = Depends(get_base_analyzer),
@@ -101,17 +139,23 @@ def get_analyzer(
     settings = get_settings()
     retriever = SqlAlchemyRetriever(session)
     if settings.analysis_mode == "graph":
-        main_model = (
-            settings.deepseek_model if settings.llm_provider == "deepseek" else settings.model_id
-        )
+        if settings.llm_provider == "deepseek":
+            main_model = settings.deepseek_model
+        elif settings.llm_provider == "claude_cli":
+            main_model = settings.claude_cli_model
+        else:
+            main_model = settings.model_id
         return GraphAnalyzer(
             select_chat_model(settings),
             embedder,
             retriever,
             model_label=f"graph:{main_model}",
             max_rounds=settings.max_rounds,
+            min_similarity=RETRIEVAL_MIN_SIMILARITY,
         )
-    return RagAnalyzer(base=base, embedder=embedder, retriever=retriever)
+    return RagAnalyzer(
+        base=base, embedder=embedder, retriever=retriever, min_similarity=RETRIEVAL_MIN_SIMILARITY
+    )
 
 
 def get_ingest_incident(
@@ -137,6 +181,23 @@ def get_log_fetcher_factory() -> Callable[[str], LogFetcher]:
     avoid a real AWS call."""
     settings = get_settings()
     return lambda service: build_log_fetcher(service, settings)
+
+
+def get_chat_repository(session: AsyncSession = Depends(get_session)) -> ChatRepository:
+    return SqlAlchemyChatRepository(session)
+
+
+def get_incident_chat(
+    session: AsyncSession = Depends(get_session),
+    incidents: IncidentRepository = Depends(get_incident_repository),
+    chat: ChatRepository = Depends(get_chat_repository),
+) -> IncidentChat:
+    return IncidentChat(
+        incidents=incidents,
+        chat=chat,
+        claude_chat=ClaudeCliChat(get_settings()),
+        uow=SqlAlchemyUnitOfWork(session),
+    )
 
 
 def get_daily_report(
@@ -169,12 +230,6 @@ def get_unit_of_work(session: AsyncSession = Depends(get_session)) -> SqlAlchemy
     return SqlAlchemyUnitOfWork(session)
 
 
-def get_ticket_client() -> TicketClient:
-    """Azure DevOps ticket client for the incident ticketing action. Tests override this to avoid
-    a real ADO call."""
-    return AdoTicketClient(get_settings())
-
-
 def get_document_repository(
     session: AsyncSession = Depends(get_session),
 ) -> DocumentRepository:
@@ -194,6 +249,24 @@ def get_ingest_document(
         embedder=embedder,
         uow=SqlAlchemyUnitOfWork(session),
     )
+
+
+def get_update_document(
+    session: AsyncSession = Depends(get_session),
+    embedder: Embedder = Depends(get_embedder),
+) -> UpdateDocument:
+    return UpdateDocument(
+        documents=SqlAlchemyDocumentRepository(session),
+        embedder=embedder,
+        uow=SqlAlchemyUnitOfWork(session),
+    )
+
+
+def get_seed_default_documents(
+    session: AsyncSession = Depends(get_session),
+    ingest: IngestDocument = Depends(get_ingest_document),
+) -> SeedDefaultDocuments:
+    return SeedDefaultDocuments(documents=SqlAlchemyDocumentRepository(session), ingest=ingest)
 
 
 def get_event_bus() -> IncidentEventBus:
@@ -234,3 +307,141 @@ async def resolve_background_incident_deps(app: "FastAPI") -> AsyncIterator[Back
         yield BackgroundIncidentDeps(
             ingest=ingest, documents=SqlAlchemyDocumentRepository(session)
         )
+
+
+def require_admin(
+    authorization: str | None = Header(default=None), settings: Settings = Depends(get_settings)
+) -> None:
+    """Gate for the Settings-page endpoints (cloud connections + the Claude Code token) — a single
+    shared admin password, not a per-user account system. Raises 401 on any missing/invalid/
+    expired token so FastAPI never resolves the route body; 503 if ADMIN_JWT_SECRET is unset — a
+    server misconfiguration, not a login failure, and admin_auth.verify_admin_token would
+    otherwise silently reject every token, masking the real problem as "wrong session"."""
+    if not settings.admin_jwt_secret:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="admin gate is misconfigured: ADMIN_JWT_SECRET is not set",
+        )
+    token = None
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization.removeprefix("Bearer ")
+    if not token or not verify_admin_token(token, settings.admin_jwt_secret):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="admin login required")
+
+
+def get_encryptor() -> Encryptor:
+    return Encryptor(get_settings().secret_encryption_key)
+
+
+def get_ado_connection_repository(
+    session: AsyncSession = Depends(get_session),
+) -> AdoConnectionRepository:
+    return SqlAlchemyAdoConnectionRepository(session)
+
+
+def get_manage_ado_connections(
+    connections: AdoConnectionRepository = Depends(get_ado_connection_repository),
+    encryptor: Encryptor = Depends(get_encryptor),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+) -> ManageAdoConnections:
+    return ManageAdoConnections(connections=connections, encryptor=encryptor, uow=uow)
+
+
+def get_ado_ticket_client_factory(
+    encryptor: Encryptor = Depends(get_encryptor),
+) -> Callable[[AdoConnection], TicketClient]:
+    """Builds a `TicketClient` scoped to one resolved `AdoConnection` — a factory (not a plain
+    `TicketClient` dependency) because which org/project/PAT to use isn't known until the
+    incident's project has been looked up (`POST /api/incidents/{id}/ticket`, see incidents.py).
+    Tests override this to avoid a real ADO call."""
+
+    def _factory(connection: AdoConnection) -> TicketClient:
+        return AdoTicketClient(
+            org=connection.org,
+            project=connection.ado_project,
+            pat=encryptor.decrypt(connection.encrypted_pat),
+            work_item_type=connection.work_item_type,
+        )
+
+    return _factory
+
+
+def get_project_repository(
+    session: AsyncSession = Depends(get_session),
+) -> ProjectRepository:
+    return SqlAlchemyProjectRepository(session)
+
+
+def get_manage_projects(
+    projects: ProjectRepository = Depends(get_project_repository),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+) -> ManageProjects:
+    return ManageProjects(projects=projects, uow=uow)
+
+
+def get_app_settings_repository(
+    session: AsyncSession = Depends(get_session),
+) -> SqlAlchemyAppSettingsRepository:
+    return SqlAlchemyAppSettingsRepository(session)
+
+
+def get_cloud_connection_repository(
+    session: AsyncSession = Depends(get_session),
+) -> CloudConnectionRepository:
+    return SqlAlchemyCloudConnectionRepository(session)
+
+
+def get_alarm_fetcher(
+    encryptor: Encryptor = Depends(get_encryptor),
+) -> AlarmFetcher:
+    """Tests override this to avoid a real AWS call (same convention as get_ticket_client)."""
+    return CloudWatchAlarmFetcher(CredentialResolver(encryptor))
+
+
+def get_manage_cloud_connections(
+    connections: CloudConnectionRepository = Depends(get_cloud_connection_repository),
+    encryptor: Encryptor = Depends(get_encryptor),
+    fetcher: AlarmFetcher = Depends(get_alarm_fetcher),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+) -> ManageCloudConnections:
+    return ManageCloudConnections(
+        connections=connections, encryptor=encryptor, fetcher=fetcher, uow=uow
+    )
+
+
+def get_poll_alarms_job(
+    session: AsyncSession = Depends(get_session),
+    fetcher: AlarmFetcher = Depends(get_alarm_fetcher),
+    analyzer: Analyzer = Depends(get_analyzer),
+    embedder: Embedder = Depends(get_embedder),
+) -> PollAlarmsJob:
+    """Manual-trigger path (`POST /api/cloud-connections/poll`). The scheduled path builds its own
+    job with an independent session — see `_run_scheduled_poll` in main.py.
+
+    `analyzer`/`embedder` are declared as `Depends(...)` (not called directly) so
+    `app.dependency_overrides` actually reaches them in tests, same as every other use-case
+    factory in this file. `ingest` still needs an `Analyzer` even though `PollAlarmsJob` itself
+    never calls `analyze_incident` — alarm-created incidents wait for a manual "Analyze with AI"
+    trigger (`POST /api/incidents/{id}/analyze`, see incidents.py), which builds its own
+    `IngestIncident` via `get_ingest_incident`."""
+    settings = get_settings()
+    return PollAlarmsJob(
+        connections=SqlAlchemyCloudConnectionRepository(session),
+        tracked=SqlAlchemyTrackedAlarmRepository(session),
+        fetcher=fetcher,
+        ingest=IngestIncident(
+            incidents=SqlAlchemyIncidentRepository(session),
+            cache=SqlAlchemyAnalysisCacheRepository(session),
+            analyzer=analyzer,
+            clock=SystemClock(),
+            uow=SqlAlchemyUnitOfWork(session),
+            cache_ttl_seconds=settings.cache_ttl_seconds,
+        ),
+        resolve=ResolveIncident(
+            incidents=SqlAlchemyIncidentRepository(session),
+            documents=SqlAlchemyDocumentRepository(session),
+            embedder=embedder,
+            uow=SqlAlchemyUnitOfWork(session),
+        ),
+        uow=SqlAlchemyUnitOfWork(session),
+    )

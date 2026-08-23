@@ -2,16 +2,43 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from app.domain.documents.entities import EvidenceRef
-from app.domain.incidents.entities import Analysis, Incident
+from app.domain.incidents.entities import Analysis, ChatMessage, Incident
 from app.interface.http.dto.response.incident import (
     AnalysisOut,
+    ChatMessageOut,
     IncidentDetail,
     IncidentSummary,
     KnownIssueOut,
 )
+
+_HEADLINE_MAX_LEN = 80
+_QUOTED = re.compile(r"'([^']+)'")
+# CloudWatch auto-generates alarm names like
+# "TargetTracking-service/<cluster>/<service>-AlarmLow-b90a64fc-e73f-47a9-89b2-89aacf4fe5c1" — the
+# leading "policy-type/cluster/" prefix and trailing UUID are noise for a list headline.
+_UUID_SUFFIX = re.compile(
+    r"-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE
+)
+
+
+def build_headline(context: dict) -> str | None:
+    """Pull a short human-readable signal out of raw context for the incidents list — every
+    incident from one connection shares `service`, so distinguishing rows before an AI summary
+    exists needs something more specific. CloudWatch's `alert` text quotes the alarm name
+    (`"CloudWatch alarm 'foo-bar' is in ALARM state: ..."`); reuse that quoted name when present,
+    otherwise fall back to the raw alert text itself."""
+    alert = context.get("alert")
+    if not alert:
+        return None
+    match = _QUOTED.search(str(alert))
+    text = match.group(1) if match else str(alert)
+    text = text.rsplit("/", 1)[-1]
+    text = _UUID_SUFFIX.sub("", text)
+    return text if len(text) <= _HEADLINE_MAX_LEN else text[: _HEADLINE_MAX_LEN - 1] + "…"
 
 
 def analysis_out(analysis: Analysis, evidence: Sequence[EvidenceRef] | None = None) -> AnalysisOut:
@@ -35,6 +62,8 @@ def analysis_out(analysis: Analysis, evidence: Sequence[EvidenceRef] | None = No
             if analysis.known_issue_incident_id is not None
             else None
         ),
+        input_tokens=analysis.input_tokens,
+        output_tokens=analysis.output_tokens,
     )
 
 
@@ -48,6 +77,8 @@ def incident_summary(incident: Incident, analysis: Analysis | None) -> IncidentS
         created_at=incident.created_at,
         severity=analysis.severity if analysis else None,
         summary=analysis.summary if analysis else None,
+        headline=build_headline(incident.context),
+        env=incident.context.get("env"),
     )
 
 
@@ -68,4 +99,18 @@ def incident_detail(
         log_group=incident.log_group,
         ticket_url=incident.ticket_url,
         analysis=analysis_out(analysis, evidence) if analysis else None,
+        headline=build_headline(incident.context),
+        env=incident.context.get("env"),
+        error_message=incident.error_message,
+    )
+
+
+def chat_message_out(message: ChatMessage) -> ChatMessageOut:
+    return ChatMessageOut(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        input_tokens=message.input_tokens,
+        output_tokens=message.output_tokens,
+        created_at=message.created_at,
     )

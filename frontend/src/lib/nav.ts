@@ -9,7 +9,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 
-export type View = 'overview' | 'incidents' | 'knowledge' | 'reports'
+export type View = 'overview' | 'incidents' | 'knowledge' | 'reports' | 'settings'
 
 export interface NavItem {
   view: View
@@ -47,11 +47,10 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'System',
-    items: [],
+    items: [{ view: 'settings', label: 'Settings', icon: Settings }],
     soon: [
       { label: 'Services', icon: Server },
       { label: 'Team', icon: Users },
-      { label: 'Settings', icon: Settings },
     ],
   },
 ]
@@ -72,5 +71,9 @@ export const VIEW_META: Record<View, { title: string; subtitle: string }> = {
   reports: {
     title: 'Reports',
     subtitle: "Roll up a day's incidents into a Slack-postable digest",
+  },
+  settings: {
+    title: 'Settings',
+    subtitle: 'AWS connections used to poll CloudWatch alarms into incidents',
   },
 }

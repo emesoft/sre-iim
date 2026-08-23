@@ -22,6 +22,9 @@ export interface AnalysisOut {
   _cache: 'HIT' | 'MISS'
   evidence: EvidenceRef[]
   known_issue: KnownIssueOut | null
+  // null means "not tracked for this provider" — currently only claude_cli reports usage.
+  input_tokens: number | null
+  output_tokens: number | null
 }
 
 export interface IncidentSummary {
@@ -33,6 +36,8 @@ export interface IncidentSummary {
   created_at: string
   severity?: string | null
   summary?: string | null
+  headline?: string | null
+  env?: string | null
 }
 
 export interface IncidentDetail {
@@ -47,19 +52,18 @@ export interface IncidentDetail {
   log_group: string | null
   ticket_url: string | null
   analysis: AnalysisOut | null
+  headline: string | null
+  env: string | null
+  error_message: string | null
 }
 
-export interface LogEventOut {
-  timestamp: string
-  message: string
-  /** Severity parsed from the line; null when the source line carried none. */
-  level: string | null
-}
-
-export interface LogSearchResult {
-  log_group: string
-  log_events: LogEventOut[]
-  analysis: AnalysisOut
+export interface ChatMessageOut {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  input_tokens: number | null
+  output_tokens: number | null
+  created_at: string
 }
 
 export interface IncidentCreated {
@@ -91,9 +95,18 @@ export interface DocumentSummary {
   updated_at: string
 }
 
+export interface DocumentDetail extends DocumentSummary {
+  content: string
+}
+
 export interface DocumentCreated {
   document_id: string
   chunks: number
+}
+
+export interface SeedDocumentsResponse {
+  seeded: number
+  skipped: number
 }
 
 export interface Health {
@@ -120,4 +133,94 @@ export interface DailyReportOut {
   counts_by_status: Record<string, number>
   incidents: ReportIncidentOut[]
   slack_markdown: string
+}
+
+export interface CloudConnection {
+  id: string
+  project: string
+  env: string
+  cloud: string
+  region: string
+  auth_type: 'sso' | 'access_key'
+  sso_profile_name: string | null
+  has_access_key: boolean
+  last_poll_at: string | null
+  last_poll_status: 'ok' | 'error' | null
+  last_poll_error: string | null
+  last_poll_alarm_count: number | null
+  created_at: string
+}
+
+export interface CloudConnectionCreate {
+  project: string
+  env: string
+  region: string
+  auth_type: 'sso' | 'access_key'
+  sso_profile_name?: string
+  access_key_id?: string
+  secret_access_key?: string
+}
+
+export interface TestConnectionResult {
+  ok: boolean
+  error: string | null
+}
+
+export interface AdoConnection {
+  id: string
+  project: string
+  org: string
+  ado_project: string
+  work_item_type: string
+  created_at: string
+}
+
+export interface AdoConnectionCreate {
+  project: string
+  org: string
+  ado_project: string
+  pat?: string
+  work_item_type: string
+}
+
+export interface Project {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface ProjectCreate {
+  name: string
+}
+
+export interface PollResult {
+  polled: number
+  alarm_count: number
+  errors: number
+}
+
+export interface PollSchedule {
+  interval_minutes: number
+  next_run_at: string | null
+}
+
+export interface SettingStatus {
+  is_set: boolean
+}
+
+export interface AdminLoginResponse {
+  token: string
+}
+
+export interface UsageByModel {
+  model_id: string
+  input_tokens: number
+  output_tokens: number
+  analyses_count: number
+}
+
+export interface LlmUsage {
+  total_input_tokens: number
+  total_output_tokens: number
+  by_model: UsageByModel[]
 }

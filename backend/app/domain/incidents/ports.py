@@ -11,7 +11,15 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
-from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident, LogEvent
+from app.domain.incidents.entities import (
+    Analysis,
+    AnalysisDraft,
+    ChatMessage,
+    ChatSession,
+    Incident,
+    LogEvent,
+    UsageByModel,
+)
 from app.domain.shared import Clock, UnitOfWork  # re-exported for existing imports
 
 if TYPE_CHECKING:
@@ -27,6 +35,7 @@ __all__ = [
     "UnitOfWork",
     "ProgressReporter",
     "NullReporter",
+    "ChatRepository",
 ]
 
 
@@ -67,16 +76,28 @@ class IncidentRepository(Protocol):
     ) -> list[tuple[Incident, Analysis | None]]: ...
 
     async def list_by_date_range(
-        self, start: datetime, end: datetime
+        self, start: datetime, end: datetime, *, service: str | None = None
     ) -> list[tuple[Incident, Analysis | None]]:
-        """Incidents created in `[start, end)`, newest first — backs the daily report."""
+        """Incidents created in `[start, end)`, newest first — backs the daily report.
+        `service` optionally scopes the report to one project."""
         ...
 
     async def add_analysis(self, analysis: Analysis) -> Analysis: ...
 
     async def latest_analysis(self, incident_id: uuid.UUID) -> Analysis | None: ...
 
-    async def set_status(self, incident_id: uuid.UUID, status: str) -> None: ...
+    async def usage_by_model(self) -> list[UsageByModel]:
+        """Real LLM token spend grouped by `model_id` — cache HITs and untracked providers
+        (input_tokens IS NULL) are excluded. Backs the Settings-page usage summary."""
+        ...
+
+    async def set_status(
+        self, incident_id: uuid.UUID, status: str, *, error_message: str | None = None
+    ) -> None:
+        """`error_message` is stored as-is (only meaningful for `status="failed"`) and cleared
+        (set to None) on every other status — a new attempt or a success must not leave a stale
+        failure reason from a previous try."""
+        ...
 
     async def update_context(
         self,
@@ -120,7 +141,12 @@ class TicketClient(Protocol):
     """Creates a tracking ticket for an incident in an external tracker (e.g. Azure DevOps).
     Returns the created ticket's URL."""
 
-    async def create_ticket(self, title: str, description: str) -> str: ...
+    async def create_ticket(
+        self, title: str, description: str, *, related_url: str | None = None
+    ) -> str:
+        """`related_url` links the new ticket back to another one (e.g. a recurrence of a known
+        issue) when the tracker supports it — implementations that don't may ignore it."""
+        ...
 
 
 class ProgressReporter(Protocol):
@@ -140,3 +166,23 @@ class NullReporter:
 
     async def stage(self, name: str, detail: str | None = None) -> None:
         return None
+
+
+class ChatRepository(Protocol):
+    """Persistence for the per-incident chat transcript and Claude Code session continuity."""
+
+    async def get_or_create_session(self, incident_id: uuid.UUID) -> ChatSession:
+        """Returns the existing session for this incident, or creates one with a fresh
+        `claude_session_id` if it has never been chatted with."""
+        ...
+
+    async def replace_session_id(self, incident_id: uuid.UUID, claude_session_id: uuid.UUID) -> None:
+        """Overwrite the stored session id — used when `--resume` fails (e.g. the backend
+        container was recreated between turns) and a fresh session was started instead."""
+        ...
+
+    async def add_message(self, message: ChatMessage) -> ChatMessage: ...
+
+    async def list_messages(self, incident_id: uuid.UUID) -> list[ChatMessage]:
+        """Oldest first — the order the frontend renders them in."""
+        ...

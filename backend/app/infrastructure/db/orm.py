@@ -13,7 +13,18 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, func
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -44,6 +55,7 @@ class IncidentRow(Base):
     status: Mapped[str] = mapped_column(Text, nullable=False, default="new")
     log_group: Mapped[str | None] = mapped_column(Text, nullable=True)
     ticket_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = _utcnow_column()
     updated_at: Mapped[datetime] = _utcnow_column()
 
@@ -69,6 +81,8 @@ class AnalysisRow(Base):
         UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
     )
     known_issue_similarity: Mapped[float | None] = mapped_column(Numeric, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = _utcnow_column()
 
 
@@ -119,4 +133,110 @@ class UserRow(Base):
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
     provider: Mapped[str] = mapped_column(Text, nullable=False)  # google | microsoft
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
+class ProjectRow(Base):
+    """The shared registry of project names — see `.claude/specs/2026-08-23-project-registry-design.md`."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
+class CloudConnectionRow(Base):
+    __tablename__ = "cloud_connections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project: Mapped[str] = mapped_column(
+        Text, ForeignKey("projects.name", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False
+    )
+    env: Mapped[str] = mapped_column(Text, nullable=False)
+    cloud: Mapped[str] = mapped_column(Text, nullable=False, default="aws")
+    region: Mapped[str] = mapped_column(Text, nullable=False)
+    auth_type: Mapped[str] = mapped_column(Text, nullable=False)  # sso | access_key
+    sso_profile_name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_access_key_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    encrypted_secret_access_key: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_poll_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_poll_status: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_poll_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    last_poll_alarm_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
+class TrackedAlarmRow(Base):
+    __tablename__ = "tracked_alarms"
+    __table_args__ = (
+        UniqueConstraint("connection_id", "alarm_arn", name="uq_tracked_alarms_connection_arn"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    connection_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("cloud_connections.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    alarm_arn: Mapped[str] = mapped_column(Text, nullable=False)
+    alarm_name: Mapped[str] = mapped_column(Text, nullable=False)
+    last_state: Mapped[str] = mapped_column(Text, nullable=False)  # OK | ALARM
+    incident_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=True
+    )
+    updated_at: Mapped[datetime] = _utcnow_column()
+
+
+class AdoConnectionRow(Base):
+    __tablename__ = "ado_connections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project: Mapped[str] = mapped_column(
+        Text, ForeignKey("projects.name", onupdate="CASCADE", ondelete="RESTRICT"),
+        nullable=False, unique=True,
+    )
+    org: Mapped[str] = mapped_column(Text, nullable=False)
+    ado_project: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_pat: Mapped[str] = mapped_column(Text, nullable=False)
+    work_item_type: Mapped[str] = mapped_column(Text, nullable=False, default="Bug")
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
+class AppSettingRow(Base):
+    """Generic encrypted key-value store for app-wide secrets (e.g. the Claude Code headless
+    OAuth token entered on the Settings page) that don't fit the per-project cloud_connections
+    shape."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    encrypted_value: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
+class ChatSessionRow(Base):
+    __tablename__ = "chat_sessions"
+
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True
+    )
+    claude_session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
+class ChatMessageRow(Base):
+    __tablename__ = "chat_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Monotonic insert order, distinct from `id`/PK — a chat turn's user+assistant rows share one
+    # transaction so `created_at` (transaction start time) ties; this is the tie-break for ordering.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=False), nullable=False)
+    incident_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    role: Mapped[str] = mapped_column(Text, nullable=False)  # user | assistant
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = _utcnow_column()

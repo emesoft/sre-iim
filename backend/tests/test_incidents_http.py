@@ -6,13 +6,15 @@ when no database is reachable.
 """
 
 import os
+import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.domain.incidents.entities import AnalysisDraft, LogEvent
+from app.domain.ado_connections.entities import AdoConnection
+from app.domain.incidents.entities import AnalysisDraft
 from app.infrastructure.db.orm import (
     EMBED_DIM,
     AnalysisCacheRow,
@@ -23,11 +25,11 @@ from app.infrastructure.db.orm import (
     IncidentRow,
 )
 from app.interface.http.deps import (
+    get_ado_connection_repository,
+    get_ado_ticket_client_factory,
     get_base_analyzer,
     get_embedder,
-    get_log_fetcher_factory,
     get_session,
-    get_ticket_client,
 )
 from app.main import app
 from tests.sse_test_utils import iter_sse
@@ -65,16 +67,20 @@ class _FakeEmbedder:
         return [0.1] * EMBED_DIM
 
 
-class _FakeLogFetcher:
-    async def fetch_logs(self, log_group, start, end, filter_pattern=None):
-        return [
-            LogEvent(timestamp=start, message="[CRITICAL] medusa-api HTTP 500: GET /admin-portal"),
-        ]
-
-
 class _FakeTicketClient:
-    async def create_ticket(self, title, description):
+    async def create_ticket(self, title, description, *, related_url=None):
         return "https://dev.azure.com/fake-org/fake-project/_workitems/edit/123"
+
+
+class _FakeAdoConnectionRepo:
+    """Every project has an (unused, fake) ADO connection configured — the tests exercise the
+    ticket-creation flow itself, not per-project ADO configuration."""
+
+    async def get_by_project(self, project):
+        return AdoConnection(
+            id=uuid.uuid4(), project=project, org="fake-org", ado_project="fake-project",
+            encrypted_pat="unused",
+        )
 
 
 @pytest.fixture()
@@ -104,8 +110,10 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
-    app.dependency_overrides[get_log_fetcher_factory] = lambda: lambda service: _FakeLogFetcher()
-    app.dependency_overrides[get_ticket_client] = lambda: _FakeTicketClient()
+    app.dependency_overrides[get_ado_connection_repository] = lambda: _FakeAdoConnectionRepo()
+    app.dependency_overrides[get_ado_ticket_client_factory] = lambda: (
+        lambda connection: _FakeTicketClient()
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -167,29 +175,100 @@ async def test_missing_service_returns_422(client):
     assert r.json()["detail"] == "context.service is required"
 
 
-async def test_log_search_merges_logs_and_reanalyzes(client):
+async def test_list_headline_extracts_quoted_alarm_name_from_alert(client):
+    r = await client.post(
+        "/api/incidents",
+        json={
+            "source": "cloudwatch_alarm",
+            "context": {
+                "service": "rxdevs",
+                "alert": "CloudWatch alarm 'ecs-easyrx-prod-svc-AlarmLow' is in ALARM state: "
+                "Threshold Crossed.",
+            },
+        },
+    )
+    assert r.status_code == 201
+
+    r = await client.get("/api/incidents")
+    assert r.status_code == 200
+    item = next(i for i in r.json() if i["source"] == "cloudwatch_alarm")
+    assert item["headline"] == "ecs-easyrx-prod-svc-AlarmLow"
+
+
+async def test_list_headline_strips_cluster_prefix_and_uuid_suffix(client):
+    r = await client.post(
+        "/api/incidents",
+        json={
+            "source": "cloudwatch_alarm",
+            "context": {
+                "service": "rxdevs",
+                "alert": (
+                    "CloudWatch alarm 'TargetTracking-service/ecs-easyrx-prod-cluster/"
+                    "ecs-easyrx-prod-rocketshipit-svc-AlarmLow-b90a64fc-e73f-47a9-89b2-"
+                    "89aacf4fe5c1' is in ALARM state: Threshold Crossed."
+                ),
+            },
+        },
+    )
+    assert r.status_code == 201
+
+    r = await client.get("/api/incidents")
+    item = next(i for i in r.json() if i["source"] == "cloudwatch_alarm")
+    assert item["headline"] == "ecs-easyrx-prod-rocketshipit-svc-AlarmLow"
+
+
+async def test_list_headline_is_null_without_an_alert(client):
+    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    assert r.status_code == 201
+
+    r = await client.get("/api/incidents")
+    item = next(i for i in r.json() if i["id"] == r.json()[0]["id"])
+    assert item["headline"] is None
+
+
+async def test_env_appears_in_list_and_detail_when_present_in_context(client):
+    r = await client.post(
+        "/api/incidents",
+        json={
+            "source": "cloudwatch_alarm",
+            "context": {"service": "rxdevs", "env": "dev", "alert": "CloudWatch alarm 'x'"},
+        },
+    )
+    incident_id = r.json()["incident_id"]
+
+    r = await client.get("/api/incidents")
+    item = next(i for i in r.json() if i["id"] == incident_id)
+    assert item["env"] == "dev"
+
+    r = await client.get(f"/api/incidents/{incident_id}")
+    assert r.json()["env"] == "dev"
+    assert r.json()["headline"] == "x"
+
+
+async def test_env_is_null_without_one_in_context(client):
+    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    incident_id = r.json()["incident_id"]
+
+    r = await client.get(f"/api/incidents/{incident_id}")
+    assert r.json()["env"] is None
+
+
+async def test_list_returns_one_row_per_incident_even_when_reanalyzed(client):
+    """A second `/analyze` call on an already-analyzed incident adds another Analysis row (this
+    is exactly how the real demo produced 3 duplicate rows for one incident in the sidebar) — the
+    list must still return exactly one row per incident, keyed to its latest analysis."""
     r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
     incident_id = r.json()["incident_id"]
     await _await_analyzed(client, incident_id)
 
-    r = await client.post(
-        f"/api/incidents/{incident_id}/logs/search",
-        json={
-            "log_group": "/ecs/prod-storefront-logs",
-            "start": "2026-07-25T00:00:00Z",
-            "end": "2026-07-25T01:00:00Z",
-        },
-    )
+    r = await client.post(f"/api/incidents/{incident_id}/analyze")
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["log_group"] == "/ecs/prod-storefront-logs"
-    assert len(body["log_events"]) == 1
-    assert "500" in body["log_events"][0]["message"]
-    assert body["analysis"]["severity"] == "critical"
+    await _await_analyzed(client, incident_id)
 
-    detail = (await client.get(f"/api/incidents/{incident_id}")).json()
-    assert detail["log_group"] == "/ecs/prod-storefront-logs"
-    assert detail["context"]["sample_logs"][0]["message"] == body["log_events"][0]["message"]
+    r = await client.get("/api/incidents")
+    assert r.status_code == 200
+    matching = [i for i in r.json() if i["id"] == incident_id]
+    assert len(matching) == 1
 
 
 async def test_resolve_saves_case_and_next_similar_incident_flags_known_issue(client):
@@ -245,13 +324,33 @@ async def test_resolve_404_for_unknown_incident(client):
     assert r.status_code == 404
 
 
-async def test_log_search_404_for_unknown_incident(client):
-    r = await client.post(
-        "/api/incidents/00000000-0000-0000-0000-000000000000/logs/search",
-        json={
-            "log_group": "/ecs/prod-storefront-logs",
-            "start": "2026-07-25T00:00:00Z",
-            "end": "2026-07-25T01:00:00Z",
-        },
-    )
+async def test_analyze_endpoint_runs_analysis_for_a_new_incident(client):
+    # Simulates a CloudWatch-alarm-created incident: status="new", no analysis yet — inserted
+    # directly since there's no public endpoint that creates one without also analyzing it.
+    engine = create_async_engine(_DB_URL)
+    maker = async_sessionmaker(engine, expire_on_commit=False)
+    incident_id = uuid.uuid4()
+    async with maker() as s:
+        s.add(
+            IncidentRow(
+                id=incident_id, service="EVP", source="cloudwatch_alarm",
+                fingerprint="fp-1", context=_CTX, status="new",
+            )
+        )
+        await s.commit()
+    await engine.dispose()
+
+    r = await client.post(f"/api/incidents/{incident_id}/analyze")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "analyzing"
+    assert body["stream"] == f"/api/incidents/{incident_id}/stream"
+    await _await_analyzed(client, str(incident_id))
+
+    r = await client.get(f"/api/incidents/{incident_id}")
+    assert r.json()["analysis"]["severity"] == "critical"
+
+
+async def test_analyze_404_for_unknown_incident(client):
+    r = await client.post("/api/incidents/00000000-0000-0000-0000-000000000000/analyze")
     assert r.status_code == 404

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.domain.documents.entities import Document, EmbeddedChunk, EvidenceRef, RetrievedChunk
@@ -54,6 +54,51 @@ class SqlAlchemyDocumentRepository:
         )
         rows = (await self._s.execute(stmt)).all()
         return [(document_to_domain(doc), count) for doc, count in rows]
+
+    async def get_with_content(self, document_id: uuid.UUID) -> tuple[Document, list[str]] | None:
+        row = await self._s.get(DocumentRow, document_id)
+        if row is None:
+            return None
+        chunks = (
+            await self._s.execute(
+                select(DocChunkRow.content)
+                .where(DocChunkRow.document_id == document_id)
+                .order_by(DocChunkRow.chunk_index)
+            )
+        ).scalars().all()
+        return document_to_domain(row), list(chunks)
+
+    async def update(
+        self, document_id: uuid.UUID, document: Document, chunks: list[EmbeddedChunk]
+    ) -> Document | None:
+        row = await self._s.get(DocumentRow, document_id)
+        if row is None:
+            return None
+        row.title = document.title
+        row.source_type = document.source_type
+        row.service = document.service
+        row.tags = list(document.tags)
+        await self._s.execute(delete(DocChunkRow).where(DocChunkRow.document_id == document_id))
+        for chunk in chunks:
+            self._s.add(
+                DocChunkRow(
+                    document_id=row.id,
+                    source_type=row.source_type,
+                    service=row.service,
+                    chunk_index=chunk.index,
+                    content=chunk.content,
+                    embedding=chunk.embedding,
+                )
+            )
+        await self._s.flush()
+        await self._s.refresh(row)
+        return document_to_domain(row)
+
+    async def delete(self, document_id: uuid.UUID) -> None:
+        row = await self._s.get(DocumentRow, document_id)
+        if row is not None:
+            await self._s.delete(row)
+            await self._s.flush()
 
     async def evidence_refs(self, chunk_ids: list[uuid.UUID]) -> list[EvidenceRef]:
         """Resolve chunk ids to their (source_type, document title) for an analysis response."""

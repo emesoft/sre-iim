@@ -1,249 +1,250 @@
-# IIM — Hướng dẫn demo (local, không cần AWS)
+# IIM — Hướng dẫn setup & demo trên máy khác
 
-Chạy toàn bộ luồng SRE trên máy local với LLM free tier và nguồn log giả lập. Không cần tài khoản
-AWS, không cần SSO profile, không đụng dữ liệu thật.
+Repo này chạy toàn bộ stack bằng Docker Compose (Postgres + pgvector, backend FastAPI, frontend
+React). Hướng dẫn này dùng **`claude_cli`** làm LLM provider (Claude Code subscription cá nhân,
+không tốn phí API riêng) — đúng như bản đang chạy demo hôm nay. Nếu máy demo không có Claude Code
+subscription, xem mục 7 để đổi sang provider khác.
 
-Thời lượng demo: **8–10 phút**. Chuẩn bị lần đầu: ~10 phút.
+Thời gian setup lần đầu: ~15 phút (chủ yếu chờ `docker compose up --build` và đăng nhập Claude Code).
 
 ---
 
-## 1. Chuẩn bị (làm một lần)
+## 1. Yêu cầu trên máy demo
 
-**Lấy 2 API key miễn phí:**
+- Docker Desktop (hoặc Docker Engine + Compose) đã cài và đang chạy.
+- Đã cài Claude Code CLI (`npm install -g @anthropic-ai/claude-code` hoặc theo hướng dẫn chính
+  thức) và có subscription Claude Pro/Max — dùng để lấy token cho `claude_cli` provider.
+- `git` để clone repo.
 
-| Dịch vụ | Dùng để | Lấy ở đâu |
-|---|---|---|
-| OpenRouter | Phân tích incident (LLM) | [openrouter.ai/keys](https://openrouter.ai/keys) — chọn model có đuôi `:free` |
-| Jina | Embedding cho RAG | [jina.ai/embeddings](https://jina.ai/embeddings) — free tier |
-
-**Điền vào `.env` ở thư mục gốc** (file đã có sẵn, đang để placeholder — file này bị gitignore, không
-bao giờ commit):
+## 2. Clone và checkout đúng branch
 
 ```bash
-DEEPSEEK_API_KEY=sk-or-...      # key OpenRouter
-JINA_API_KEY=jina_...           # key Jina
+git clone <repo-url> LLM-SRE
+cd LLM-SRE
+git checkout feature/cloudwatch-alarm-polling   # hoặc nhánh/tag đã merge tính năng demo này
 ```
 
-Ba dòng quan trọng khác đã set sẵn, **đừng đổi trước buổi demo**:
+## 3. Tạo file `.env` ở thư mục gốc
 
-- `ANALYSIS_MODE=single` — mỗi lần phân tích chỉ gọi LLM một lần, hợp rate limit free. Chế độ `graph`
-  gọi nhiều lần **và hiện chưa chạy known-issue matching**, sẽ mất một bước trong kịch bản.
-- `DEMO_LOGS=true` — nút "Search logs" lấy log giả lập thay vì gọi CloudWatch.
-- `EMBEDDING_DIM=768` — khớp với model Jina; migration tự resize cột vector khi khởi động.
-
----
-
-## 2. Khởi động
+File `.env` bị gitignore, phải tự tạo. Tối thiểu cần các biến sau:
 
 ```bash
-# Bật Docker Desktop trước, rồi từ thư mục gốc repo:
+# --- Database ---
+POSTGRES_DB=iim
+POSTGRES_USER=iim
+DB_PASSWORD=change-me                # tự đặt password khác nếu muốn
+
+# --- LLM provider ---
+LLM_PROVIDER=claude_cli
+CLAUDE_CLI_MODEL=sonnet              # hoặc opus/haiku
+ANALYSIS_MODE=single                 # single = 1 lần gọi LLM/phân tích (khuyến nghị cho demo)
+MAX_ROUNDS=2
+
+# --- Embedding (RAG) — dùng Jina, free tier, không cần AWS ---
+EMBEDDING_PROVIDER=jina
+EMBEDDING_MODEL=jina-embeddings-v3
+EMBEDDING_DIM=768
+JINA_API_KEY=jina_...                # lấy free tại jina.ai/embeddings
+
+# --- Mã hóa secrets (AWS access key, ADO PAT, Claude Code token đều lưu mã hóa trong DB) ---
+SECRET_ENCRYPTION_KEY=               # sinh bằng: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+
+# --- Password admin để vào trang Settings (1 password dùng chung) ---
+ADMIN_PASSWORD=                      # tự đặt
+ADMIN_JWT_SECRET=                    # sinh bằng: python -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+`SECRET_ENCRYPTION_KEY` và `ADMIN_PASSWORD`/`ADMIN_JWT_SECRET` là **bắt buộc** — thiếu thì trang
+Settings và mọi thao tác lưu secret (AWS connection, ADO PAT, Claude Code token) sẽ báo lỗi 503/500
+thay vì hoạt động.
+
+## 4. Khởi động stack
+
+```bash
 docker compose up --build
 ```
 
-Chờ tới khi log backend hiện `Application startup complete`, rồi mở **http://localhost:5173**.
-
-Kiểm tra nhanh trước khi lên demo:
+Chờ tới khi log backend hiện migration chạy xong và `Application startup complete`. Kiểm tra:
 
 ```bash
 curl localhost:8000/healthz     # {"status":"ok","app":"IIM","database":"up"}
 ```
 
-Muốn chạy test suite trong lúc stack đang lên, **phải truyền đúng số chiều embedding**, nếu không 5
-test sẽ fail vì DB đã được migrate sang 768 chiều theo `.env` demo:
+Mở **http://localhost:5173**. Trang chủ dùng gate đăng nhập tạm ở frontend (nhập email bất kỳ →
+Sign in) — SSO thật chưa làm, xem mục 8.
+
+## 5. Cấu hình Claude Code token (bắt buộc để phân tích chạy được)
+
+Trên **chính máy đang chạy `docker compose`** (không phải trong container):
 
 ```bash
-cd backend && EMBEDDING_DIM=768 uv run pytest     # 102 passed
+claude setup-token
 ```
 
-Nếu góc trên bên phải UI hiện pill health màu xanh là stack đã thông.
+Lệnh này mở trình duyệt đăng nhập Claude Code, in ra một token. Copy token đó, vào app:
+
+**Settings** → nhập `ADMIN_PASSWORD` → mục **Claude Code token** → dán token → **Save**.
+
+Token được mã hóa và lưu trong Postgres, không lưu ở `.env`. Nếu quên bước này, mọi incident sẽ
+phân tích **failed** với thông báo "Claude Code token is not configured" — đây chính là trạng thái
+lỗi hay gặp nhất, và nút **Retry analysis** trên incident đó sẽ hoạt động lại ngay sau khi cấu hình
+token xong (không cần tạo incident mới).
+
+## 6. Nạp Knowledge Base (khuyến nghị làm trước demo)
+
+Vào **Knowledge Base** → bấm **Load default runbooks**. App sẽ tự ingest 3 runbook mẫu có sẵn
+trong repo (`backend/app/seed_docs/*.md`): High CPU/Memory, 5xx Error Spike, Deploy Rollback.
+Bấm lại nút này bao nhiêu lần cũng an toàn — nó chỉ thêm những tài liệu chưa có (khớp theo tiêu
+đề), không tạo trùng, không tốn phí embedding lại.
+
+Đây là bằng chứng RAG thật: khi phân tích 1 incident, phần **Evidence** sẽ trích dẫn đúng đoạn nội
+dung từ các runbook này nếu chúng thực sự liên quan (hệ thống đã lọc bỏ runbook không liên quan,
+chỉ giữ những cái có độ tương đồng ngữ nghĩa đủ cao).
+
+Muốn thêm tài liệu riêng của công ty: **New document** → điền Title/Source type/Service/Tags/
+Content (dán markdown thẳng vào, không cần upload file).
+
+## 7. Cấu hình Project (AWS + Azure DevOps) — tùy chọn
+
+Mục **Projects** trên Settings gộp chung 3 thứ cho mỗi project nội bộ (EVP, rxdevs, ...):
+
+1. **Tên project** — registry dùng chung, các phần dưới đều chọn từ danh sách này thay vì gõ tay
+   (tránh lỗi gõ sai/không khớp giữa các connection).
+2. **Azure DevOps** (tùy chọn) — điền ADO organization, ADO project name, Personal Access Token,
+   Work item type ngay trong form tạo project (ẩn sau link "+ Add an Azure DevOps ticket
+   destination" nếu không cần) hoặc bấm "+ Add ADO" sau trên từng dòng project.
+3. **AWS connections** (tùy chọn, cần để auto-ingest CloudWatch alarm) — nằm ngay dưới mỗi project,
+   chọn SSO profile hoặc Access key.
+
+Không có bước nào ở mục này là bắt buộc để demo luồng chính (tạo incident thủ công → phân tích →
+tạo ticket) — chỉ cần thiết nếu muốn demo:
+- **Auto-ingest CloudWatch alarm thật** → cần AWS connection.
+- **Nút "Create ADO ticket"** trên incident → cần ADO connection cho đúng project của incident đó
+  (khớp theo `service`). Không cấu hình thì nút này sẽ báo lỗi rõ ràng thay vì crash.
+
+### AWS connection — SSO profile hoặc Access key
+
+**SSO profile**: cấu hình sẵn `~/.aws/config` trên máy host, `aws sso login --profile <name>` trước
+khi bấm Refresh; token SSO có hạn, hết hạn thì đăng nhập lại là đủ, không cần sửa gì trong app.
+
+**Access key**: đơn giản hơn, không cần chuẩn bị gì trên host — tạo 1 IAM user quyền tối thiểu
+`cloudwatch:DescribeAlarms` (policy `CloudWatchReadOnlyAccess`), dán Access Key ID + Secret vào
+form (được mã hóa ngay khi lưu).
+
+Sau khi thêm connection: bấm **Test** để xác nhận gọi CloudWatch thành công thật, rồi **Refresh**
+để poll ngay (mặc định tự poll mỗi 60 phút).
+
+### Azure DevOps connection
+
+PAT cần quyền **Work Items (Read & Write)** trên project ADO tương ứng. Bấm **Test** sau khi thêm
+để xác nhận org/project/PAT hợp lệ trước khi dùng thật trong demo.
 
 ---
 
-## 3. Kịch bản demo
+## 8. Kịch bản demo (gợi ý, ~10 phút)
 
 ### Bước 1 — Đăng nhập (10 giây)
+Nhập email bất kỳ → Sign in.
+> Nói trước: "Phần này là gate tạm ở frontend, SSO thật nằm ở milestone sau — Settings thì đã có
+> xác thực admin thật, hai cái độc lập nhau."
 
-Nhập email bất kỳ → **Sign in**.
+### Bước 2 — Tạo incident và xem AI phân tích live (2 phút)
+**Incidents** → **New incident** → chọn sample **Infra OOM** (đã điền sẵn dữ liệu) → **Create**.
+Theo dõi các stage chạy real-time qua SSE (retrieve → analyze → ...).
 
-> Nói: "Phần đăng nhập hiện là gate tạm ở frontend, SSO thật nằm ở milestone sau."
+Khi xong, chỉ vào: **Severity + Summary**, **Root cause** (chú ý cách nó nối `recent_deploy
+v2.14.0` — 3 phút trước sự cố — với `memory_pct 99%`), **Recommended action** (hiện dạng danh sách
+đánh số rõ ràng), và **Evidence** — trích dẫn đúng chunk từ runbook đã nạp ở mục 6.
 
-Nói trước như vậy tốt hơn để người xem hỏi thì mình đã chủ động.
+> Nói: "Nó không đoán. Root cause chỉ rút ra từ context được cấp và bằng chứng lấy từ knowledge
+> base — evidence hiển thị chính là đoạn tài liệu AI đã đọc, không phải bịa."
 
-### Bước 2 — Nạp knowledge base (1 phút)
+### Bước 3 — Chat with Claude (2 phút)
+Trong incident detail, kéo xuống panel **Chat with Claude**. Hỏi tự nhiên, ví dụ: *"check logs of
+payment-service around this time"* — Claude tự quyết định gọi tool lấy log, trả lời có căn cứ,
+không cần bấm form riêng.
 
-Vào **Knowledge Base** → **New document**. Tạo 2 tài liệu để RAG có thứ để trích dẫn:
+> Nói: "Đây là chat có tool-calling thật — Claude tự quyết khi nào cần lấy thêm dữ liệu, không phải
+> chỉ trả lời dựa trên những gì đã có sẵn trong context."
 
-**Tài liệu 1** — Title: `Runbook: payment-service OOM`, Service: `payment-service`,
-Tags: `runbook, oom`, Content:
+### Bước 4 — Resolve và Known-issue matching (2 phút)
+Bấm **Resolve**, điền cách xử lý thật ngắn gọn. Tạo incident thứ hai cùng sample **Infra OOM**
+nhưng **sửa `recent_deploy.version` thành giá trị khác** (bắt buộc — fingerprint gồm cả deploy
+version, giữ nguyên sẽ trúng cache và bỏ qua bước matching).
 
-```
-Khi payment-service bị OOMKilled: kiểm tra memory limit của task (hiện 512 MiB) và heap size của JVM.
-Sự cố tháng 5/2026 do release tăng batch size lên 5000 record trong khi heap không đổi.
-Cách xử lý: rollback về version trước, sau đó tăng task memory lên 1024 MiB rồi deploy lại.
-Không tăng số task — vấn đề nằm ở memory từng task, scale ngang không giải quyết.
-```
+Incident mới hiện banner **"Known issue"** kèm % tương đồng, link sang case đã resolved.
 
-**Tài liệu 2** — Title: `Postmortem: cache regression r2026.07`, Service: `gcm-search-gateway`,
-Tags: `postmortem, cost`, Content:
+> Nói: "On-call không phải chẩn đoán lại từ đầu — hệ thống nhận ra ca này giống ca đã fix, chỉ
+> thẳng sang cách xử lý lần trước."
 
-```
-Release r2026.07.2 thay đổi cache layer khiến cache hit rate rớt từ 88% xuống ~30%,
-kéo theo số lần gọi API bên thứ ba vượt budget ngày. Nguyên nhân: cache key thiếu tham số locale
-nên mọi request đều miss. Fix: thêm lại locale vào cache key, hit rate trở về mức nền sau 2 giờ.
-```
+### Bước 5 — Tạo ADO ticket (1 phút, cần đã cấu hình ADO ở mục 7)
+Bấm **Create ADO ticket**. Ticket mở ra có title ngắn gọn (không phải nguyên câu AI dài), mô tả có
+định dạng heading/danh sách rõ ràng (Summary/Root cause/Recommended action).
 
-> Nói: "Đây là runbook và postmortem nội bộ — thứ mà on-call bình thường phải tự nhớ ra là có tồn tại."
+Nếu đây là ca lặp lại (known issue) và ca cũ đã có ticket, ticket mới sẽ tự động link **Related**
+sang ticket cũ — không cần làm tay. Bấm lại nút này lần 2 trên cùng incident sẽ báo lỗi rõ ràng
+"đã có ticket" thay vì tạo trùng.
 
-### Bước 3 — Tạo incident và xem AI phân tích live (2 phút)
-
-Vào **Incidents** → **New incident** → chọn sample **Infra OOM** (đã điền sẵn) → **Create**.
-
-Chỉ ngay vào panel tiến trình: các stage chạy real-time qua SSE (retrieve → analyze → …), không phải
-spinner giả.
-
-Khi xong, chỉ vào kết quả:
-
-- **Severity + summary** — mức độ và tóm tắt
-- **Root cause** — chú ý nó nối `recent_deploy v2.14.0` (3 phút trước sự cố) với `memory_pct 99%`
-- **Recommended action**
-- **Evidence** — trích dẫn đúng chunk từ runbook vừa nạp ở bước 2
-
-> Nói: "Nó không đoán. Root cause chỉ được rút ra từ context được cấp và bằng chứng lấy từ knowledge
-> base — mỗi kết luận đều truy ngược được về nguồn."
-
-### Bước 4 — Kéo log về và phân tích lại (2 phút)
-
-Trong incident detail, tìm card **Search logs**:
-
-- **Log group**: gõ `/ecs/payment-service-worker-oom`
-- Start/End để nguyên (mặc định ±30 phút quanh thời điểm incident)
-- Bấm **Search logs**
-
-Log lines hiện ra, incident được phân tích lại trên chính đống log đó.
-
-**Bấm Search logs lần nữa với đúng tham số cũ** → kết quả trả về tức thì, gắn nhãn cache **HIT
-(0 tokens)**.
-
-> Nói: "Cùng một sự cố lặp lại thì không tốn thêm một token nào. Nhưng nếu deploy version đổi,
-> fingerprint đổi theo và hệ thống buộc phải phân tích lại — cache cũ không được phép chẩn đoán sai
-> một sự cố sau deploy."
-
-Tên log group quyết định kịch bản log giả lập:
-
-| Log group chứa | Kịch bản |
-|---|---|
-| `oom`, `mem` | OOMKilled exit 137, heap cạn, GC pause, task bị dừng |
-| `alb`, `5xx`, `gateway`, `http` | 502/504, health check fail, connection pool cạn |
-| `db`, `postgres`, `sql`, `rds` | pool bão hoà, deadlock, slow query, replica lag |
-| `disk`, `volume`, `storage` | No space left on device, WAL panic, logrotate fail |
-| `cert`, `tls`, `ssl` | certificate expired, handshake failure |
-| `queue`, `kafka`, `sqs`, `backlog` | consumer lag, rebalance liên tục, DLQ phình |
-| `quota`, `ratelimit`, `vendor`, `cost` | 429 từ vendor, vượt budget ngày, cache hit rate sập |
-| còn lại | lỗi ứng dụng chung (traceback, DB timeout, worker chết) |
-
-Ví dụ dùng được ngay: `/ecs/payment-service-worker-oom`, `/ecs/gcm-postgres-db`,
-`/ecs/gcm-kafka-queue`, `/ecs/gcm-vendor-quota`, `/aws/alb/gcm-public-5xx`.
-
-Mỗi dòng log có dạng `component  key=value ...` rồi tới nội dung, kèm level riêng — nên phân tích
-trích được số cụ thể (`pool=100/100 waiting=64`, `exit_code=137`, `lag=184320`) thay vì chỉ mô tả chung.
-
-### Bước 5 — Resolve và known-issue matching (2 phút)
-
-Ở incident đang mở, bấm **Resolve**, điền cách xử lý:
-
-```
-Rollback về v2.13.4 và tăng task memory lên 1024 MiB. Sự cố dừng sau 4 phút.
-```
-
-Giờ tạo incident thứ hai: **New incident** → sample **Infra OOM** → **sửa `recent_deploy.version`
-thành `v2.14.1`** → Create.
-
-> Việc đổi version là bắt buộc: fingerprint gồm cả deploy version, giữ nguyên `v2.14.0` sẽ trúng cache
-> và bỏ qua bước matching.
-
-Incident mới hiện **banner "Known issue"** kèm % tương đồng và link sang incident đã xử lý.
-
-> Nói: "On-call không phải chẩn đoán lại từ đầu. Hệ thống nhận ra ca này giống một ca đã fix, và chỉ
-> thẳng sang cách đã xử lý lần trước."
-
-### Bước 6 — Tạo ticket (30 giây, tùy chọn)
-
-Nút **Create ADO ticket** chỉ hiện khi incident **chưa** được đánh dấu known issue và chưa có ticket —
-đúng chủ ý: chỉ mở ticket cho lỗi thật sự mới.
-
-Cần `AZDO_ORG` / `AZDO_PROJECT` / `AZDO_PAT` trong `.env`. **Không có credential thì bỏ qua bước này** —
-nói bằng lời thay vì bấm và để nó lỗi trên màn hình.
-
-### Bước 7 — Báo cáo ngày (1 phút)
-
-Vào **Reports**, chọn ngày hôm nay. Digest tự sinh: số lượng theo severity + narrative.
-Bấm **Copy for Slack**.
-
-> Nói: "Cuối ca trực, dán thẳng vào kênh status. Không phải ngồi tổng hợp tay."
+### Bước 6 — Báo cáo ngày (1 phút)
+**Reports** → chọn ngày hôm nay → **Generate report** (không tự sinh khi đổi ngày, phải bấm) →
+digest tự sinh số lượng theo severity + narrative → **Copy for Slack**.
 
 ---
 
-## 4. Khi có sự cố lúc demo
+## 9. Xử lý sự cố lúc demo
 
 | Triệu chứng | Nguyên nhân thường gặp | Xử lý |
 |---|---|---|
 | UI hiện "can't reach the backend" | backend chưa lên xong | chờ hết migration, `docker compose logs backend` |
-| Phân tích lỗi 429 / rate limit | OpenRouter free tier siết | thử lại, hoặc đổi `DEEPSEEK_MODEL` sang model `:free` khác rồi restart backend |
-| Incident ra `status: failed`, không rõ lý do | backend **không ghi log** lý do — chỉ đẩy qua SSE | gắn vào stream để thấy: `curl -N localhost:8000/api/incidents/{id}/stream` |
-| Model trả 404 "unavailable for free" | model đó đã bị OpenRouter chuyển sang trả phí | liệt kê model free hiện tại (xem mục 6), đổi `DEEPSEEK_MODEL` |
-| Phân tích lỗi 401 | key sai hoặc chưa được truyền vào container | `docker compose config` xem `DEEPSEEK_API_KEY` đã resolve chưa |
-| Evidence rỗng | chưa nạp knowledge doc, hoặc `JINA_API_KEY` sai | làm lại bước 2 |
-| Search logs lỗi NotImplementedError | `DEMO_LOGS` chưa `true` trong container | sửa `.env` rồi `docker compose up -d --force-recreate backend` |
-| Muốn diễn lại từ đầu | dữ liệu cũ còn trong DB | `docker compose down -v && docker compose up --build` |
+| Incident ra "Analysis failed — Claude Code token is not configured" | quên bước 5 | vào Settings dán token, quay lại incident bấm **Retry analysis** (không cần tạo incident mới) |
+| Evidence rỗng dù đã nạp Knowledge Base | ngưỡng lọc RAG không có tài liệu nào đủ liên quan tới alert đó | bình thường nếu incident không liên quan tới runbook có sẵn; hoặc kiểm tra `JINA_API_KEY` |
+| "Create ADO ticket" báo lỗi 422 "No Azure DevOps project configured" | chưa thêm ADO connection cho đúng project | vào Settings → Projects thêm ADO cho project đó (mục 7) |
+| "Create ADO ticket" báo 502 kèm message ADO | PAT hết hạn / thiếu quyền / work item type sai | kiểm tra lại PAT và Work item type ở Settings, bấm Test |
+| Bấm Create ADO ticket lần 2 báo 409 | incident đã có ticket rồi (đúng hành vi, chặn tạo trùng) | dùng link ticket cũ trong thông báo lỗi |
+| Trang Settings báo lỗi 503 | thiếu `ADMIN_PASSWORD`/`ADMIN_JWT_SECRET` trong `.env` | thêm vào `.env`, `docker compose up -d --build backend` |
+| Lưu AWS connection/ADO/Claude token báo lỗi 500 | thiếu `SECRET_ENCRYPTION_KEY` | thêm vào `.env`, rebuild backend |
+| Muốn diễn lại từ đầu, dữ liệu cũ còn trong DB | — | `docker compose down -v && docker compose up --build` (mất hết dữ liệu, kể cả Knowledge Base — cần bấm lại "Load default runbooks") |
 
-**Phương án dự phòng:** chạy thử trọn kịch bản một lượt trước buổi demo và **để nguyên dữ liệu đó
-trong DB**. Nếu lúc demo mạng hoặc API free tier chết, vẫn còn incident đã phân tích sẵn để trình bày.
-Quay màn hình một lượt chạy thành công cũng đáng, phòng khi mất mạng hoàn toàn.
-
----
-
-## 5. Giới hạn — nên nói trước
-
-Chủ động nêu, đừng để bị hỏi vặn:
-
-- **Chưa có auto-ingest.** Alarm chưa tự tạo incident; SRE vẫn tạo tay. Đây là chủ đích — cần các team
-  chủ quản cấp quyền trước.
-- **Auth là gate tạm ở frontend.** Backend chưa xác thực.
-- **Log trong demo là giả lập.** Adapter CloudWatch thật đã có và chạy được với SSO profile, chỉ là
-  demo này không dùng tới.
-- **Form log search chưa gửi bộ lọc theo error message.** API đã hỗ trợ `filter_pattern`, UI thì chưa
-  nối — vẫn gọi được qua API trực tiếp.
-- **Chỉ chạy local.** `iac/` còn rỗng, chưa deploy cloud.
+**Phương án dự phòng:** chạy thử trọn kịch bản một lượt trước buổi demo thật và **để nguyên dữ
+liệu đó trong DB** — nếu lúc demo mạng/API chết, vẫn còn incident đã phân tích sẵn để trình bày.
 
 ---
 
-## 6. Đổi sang provider khác
+## 10. Giới hạn — nên chủ động nói trước
 
-Adapter `deepseek` thực chất là client OpenAI-compatible, base URL cấu hình được — nên đổi provider chỉ
-là đổi env, không sửa code:
+- **Đăng nhập trang chính** chỉ là gate tạm ở frontend (email bất kỳ đều vào được). Trang
+  **Settings** có xác thực admin thật (1 password dùng chung, không phải per-user).
+- **Auto-ingest CloudWatch alarm** cần AWS connection thật (mục 7) — không bật sẵn theo mặc định.
+- **`claude_cli` chỉ dùng cho demo/dev**, không phải kiến trúc production (dùng subscription cá
+  nhân thay vì API key trả phí — xem `backend/app/infrastructure/llm/claude_cli.py`).
+- **Chỉ chạy local qua Docker Compose.** `iac/` (Terraform) còn rỗng, chưa deploy lên cloud thật.
 
-Danh sách model free của OpenRouter đổi theo thời gian. Model đã bị rút khỏi free trả về **404
-`This model is unavailable for free`** — không phải lỗi auth, nên key vẫn tốt. Liệt kê model free
-đang sống:
+---
 
+## 11. Đổi sang LLM provider khác (không có Claude Code subscription)
+
+Nếu máy demo không có Claude Code, đổi `LLM_PROVIDER` trong `.env`:
+
+**DeepSeek / OpenRouter (free tier, cần API key):**
+```bash
+LLM_PROVIDER=deepseek
+DEEPSEEK_API_KEY=sk-or-...
+DEEPSEEK_MODEL=openai/gpt-oss-20b:free
+DEEPSEEK_BASE_URL=https://openrouter.ai/api/v1
+```
+Danh sách model free đổi theo thời gian, model bị rút khỏi free trả về 404 chứ không phải lỗi auth:
 ```bash
 curl -s https://openrouter.ai/api/v1/models | jq -r '.data[].id | select(endswith(":free"))'
 ```
 
-`openai/gpt-oss-20b:free` là model đã được kiểm chứng chạy đúng với pipeline này (trả JSON sạch ở
-`content`, phần reasoning tách riêng nên không làm hỏng parser).
-
+**Bedrock (mất phí, cần quyền AWS thật):**
 ```bash
-# Groq
-DEEPSEEK_BASE_URL=https://api.groq.com/openai/v1
-DEEPSEEK_MODEL=llama-3.3-70b-versatile
-
-# Ollama chạy local (không cần key, chậm hơn)
-DEEPSEEK_BASE_URL=http://host.docker.internal:11434/v1
-DEEPSEEK_MODEL=llama3.1
-
-# Bedrock (mất phí, cần quyền AWS)
 LLM_PROVIDER=bedrock
+AWS_REGION=ap-southeast-1
+MODEL_ID=anthropic.claude-3-5-haiku-20241022-v1:0
 EMBEDDING_PROVIDER=titan
-EMBEDDING_DIM=1024      # đổi dim cần tạo lại DB: docker compose down -v
+EMBEDDING_DIM=1024        # đổi dim so với Jina cần tạo lại DB: docker compose down -v
 ```
+
+Đổi `EMBEDDING_PROVIDER`/`EMBEDDING_DIM` sau khi DB đã có dữ liệu **không tự resize** — phải
+`docker compose down -v` (mất toàn bộ dữ liệu) rồi `up --build` lại từ đầu.
