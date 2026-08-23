@@ -221,7 +221,10 @@ export function IncidentDetail({
             <span className="inline-flex items-center gap-1.5">
               <Cpu size={13} /> <span className="font-mono text-ink-2">{a.model_id}</span>
             </span>
-            {a.input_tokens !== null && a.output_tokens !== null && (
+            {/* A cache HIT is always 0/0 by design (no LLM call was made) — the cache badge
+                above already communicates that, so only show a token count when it reflects a
+                real call (cache MISS), otherwise "0 in / 0 out" reads as a confusing error. */}
+            {a._cache === 'MISS' && a.input_tokens !== null && a.output_tokens !== null && (
               <span className="inline-flex items-center gap-1.5">
                 <Coins size={13} />
                 <span className="font-mono text-ink-2">
