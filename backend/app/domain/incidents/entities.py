@@ -105,3 +105,39 @@ class UsageByModel:
     input_tokens: int
     output_tokens: int
     analyses_count: int
+
+
+@dataclass(frozen=True)
+class ChatMessage:
+    """One turn in an incident's chat transcript (design spec 2026-08-23). Append-only — never
+    mutated after creation."""
+
+    incident_id: uuid.UUID
+    role: str  # user | assistant
+    content: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    id: uuid.UUID | None = None
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ChatSession:
+    """Ties one incident to the Claude Code CLI session id used for `--resume`, so a multi-turn
+    chat doesn't need to resend the full transcript on every message."""
+
+    incident_id: uuid.UUID
+    claude_session_id: uuid.UUID
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True)
+class ChatTurnResult:
+    """One chat turn's outcome from an `IncidentChatProvider`. `claude_session_id` is the session
+    actually used — it can differ from the one requested if the provider had to start a fresh
+    session (e.g. a stale `--resume` target after the backend container was recreated)."""
+
+    text: str
+    input_tokens: int | None
+    output_tokens: int | None
+    claude_session_id: uuid.UUID

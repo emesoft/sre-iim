@@ -11,7 +11,15 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
-from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident, LogEvent, UsageByModel
+from app.domain.incidents.entities import (
+    Analysis,
+    AnalysisDraft,
+    ChatMessage,
+    ChatSession,
+    Incident,
+    LogEvent,
+    UsageByModel,
+)
 from app.domain.shared import Clock, UnitOfWork  # re-exported for existing imports
 
 if TYPE_CHECKING:
@@ -27,6 +35,7 @@ __all__ = [
     "UnitOfWork",
     "ProgressReporter",
     "NullReporter",
+    "ChatRepository",
 ]
 
 
@@ -152,3 +161,23 @@ class NullReporter:
 
     async def stage(self, name: str, detail: str | None = None) -> None:
         return None
+
+
+class ChatRepository(Protocol):
+    """Persistence for the per-incident chat transcript and Claude Code session continuity."""
+
+    async def get_or_create_session(self, incident_id: uuid.UUID) -> ChatSession:
+        """Returns the existing session for this incident, or creates one with a fresh
+        `claude_session_id` if it has never been chatted with."""
+        ...
+
+    async def replace_session_id(self, incident_id: uuid.UUID, claude_session_id: uuid.UUID) -> None:
+        """Overwrite the stored session id — used when `--resume` fails (e.g. the backend
+        container was recreated between turns) and a fresh session was started instead."""
+        ...
+
+    async def add_message(self, message: ChatMessage) -> ChatMessage: ...
+
+    async def list_messages(self, incident_id: uuid.UUID) -> list[ChatMessage]:
+        """Oldest first — the order the frontend renders them in."""
+        ...
