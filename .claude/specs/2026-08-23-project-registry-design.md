@@ -117,6 +117,11 @@ FK-violation `IntegrityError` and re-raise a domain-level error (reusing `Manage
 that their HTTP routes map to `422` with a message like
 `"unknown project '<name>' — add it in the Projects registry first"`.
 
+Both forms also let a user change the `project` field while editing an existing connection, which
+goes through `ManageCloudConnections.update`/`ManageAdoConnections.update` instead of `create` — the
+same FK violation is reachable there too, so both `update` methods get the identical catch-and-map
+treatment as their `create` counterparts.
+
 ## Frontend
 
 - `src/lib/types.ts` — `Project { id, name, created_at }`, `ProjectCreate { name }`.
@@ -127,13 +132,14 @@ that their HTTP routes map to `422` with a message like
 - `Settings.tsx` — add `projects` state, a `loadProjects()` call (`GET /api/projects`) alongside the
   existing `load()`/`loadSchedule()`/`loadAdo()` in the mount `useEffect`, and pass `projects` down to
   both connection forms.
-- `CloudConnectionForm.tsx` / `AdoConnectionForm.tsx` — replace the hardcoded `KNOWN_PROJECTS`
-  constant and the `SelectOrOtherField` "Other..." free-text branch with a plain `<select>` bound to
-  the `projects` prop (`{projects.map(p => <option value={p.name}>{p.name}</option>)}`). If
-  `projects` is empty, render a short inline message ("No projects yet — add one above") instead of
-  an empty dropdown, so the form doesn't silently submit an empty string.
-- `SelectOrOtherField.tsx` becomes unused once both forms drop it (it has no other caller) — delete
-  it as part of this change rather than leaving dead code behind.
+- `CloudConnectionForm.tsx` / `AdoConnectionForm.tsx` — replace only the **Project** field's
+  `SelectOrOtherField` (hardcoded `KNOWN_PROJECTS` + "Other..." free-text branch) with a plain
+  `<select>` bound to a new `projects: Project[]` prop
+  (`{projects.map(p => <option value={p.name}>{p.name}</option>)}`). If `projects` is empty, render
+  a short inline message ("No projects yet — add one above") instead of an empty dropdown, so the
+  form doesn't silently submit an empty string. `CloudConnectionForm.tsx` keeps `SelectOrOtherField`
+  for its Env and Region fields — those aren't part of this registry — so the component itself is
+  not touched or removed, only the "Project" field's markup changes in both forms.
 
 ## Testing
 
