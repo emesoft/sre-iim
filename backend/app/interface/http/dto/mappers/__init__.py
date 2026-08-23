@@ -5,6 +5,7 @@ from app.interface.http.dto.mappers.cloud_connection import cloud_connection_out
 from app.interface.http.dto.mappers.document import document_detail, document_summary
 from app.interface.http.dto.mappers.incident import (
     analysis_out,
+    build_headline,
     chat_message_out,
     incident_detail,
     incident_summary,
@@ -13,6 +14,7 @@ from app.interface.http.dto.mappers.project import project_out
 
 __all__ = [
     "analysis_out",
+    "build_headline",
     "incident_summary",
     "incident_detail",
     "chat_message_out",

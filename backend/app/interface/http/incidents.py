@@ -7,7 +7,9 @@ maps domain entities back to response DTOs. No business rules or persistence det
 from __future__ import annotations
 
 import asyncio
+import html
 import json
+import re
 import uuid
 from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING
@@ -21,7 +23,7 @@ from app.application.incidents.resolve import NoAnalysisToResolveError, ResolveI
 from app.domain.ado_connections.entities import AdoConnection
 from app.domain.ado_connections.ports import AdoConnectionRepository
 from app.domain.documents.ports import DocumentRepository
-from app.domain.incidents.entities import Incident
+from app.domain.incidents.entities import Analysis, Incident
 from app.domain.incidents.ports import ChatRepository, IncidentRepository, TicketClient
 from app.domain.shared import UnitOfWork
 from app.infrastructure.config import Settings, get_settings
@@ -286,6 +288,55 @@ async def resolve_incident(
     return mappers.incident_detail(incident, analysis, evidence)
 
 
+_NUMBERED_STEP = re.compile(r"^\d+[.)]\s*(.+)$")
+
+
+def _as_html_paragraph(text: str) -> str:
+    return f"<p>{html.escape(text)}</p>"
+
+
+def _recommended_action_html(text: str) -> str:
+    """Renders numbered "1. foo\\n2. bar" text as an `<ol>`, mirroring the frontend's
+    `parseSteps`/`RecommendedAction` treatment — falls back to a plain paragraph when the text
+    isn't actually a numbered list (fewer than 2 matching lines)."""
+    steps = [
+        m.group(1)
+        for line in text.split("\n")
+        if (m := _NUMBERED_STEP.match(line.strip()))
+    ]
+    if len(steps) < 2:
+        return _as_html_paragraph(text)
+    items = "".join(f"<li>{html.escape(step)}</li>" for step in steps)
+    return f"<ol>{items}</ol>"
+
+
+def _build_ticket_description(
+    analysis: Analysis, incident_id: uuid.UUID, related_ticket_url: str | None
+) -> str:
+    """Azure DevOps's description/repro-steps fields are HTML rich text, not plain text — a
+    plain "\\n\\n"-joined string collapses into one unbroken paragraph in the ADO UI. Build real
+    HTML instead, with each section as its own heading + paragraph (or list, for the numbered
+    recommended-action steps)."""
+    parts = [
+        "<h3>Summary</h3>",
+        _as_html_paragraph(analysis.summary),
+        "<h3>Root cause</h3>",
+        _as_html_paragraph(analysis.root_cause),
+        "<h3>Recommended action</h3>",
+        _recommended_action_html(analysis.recommended_action),
+    ]
+    if related_ticket_url:
+        parts.append("<h3>Related</h3>")
+        parts.append(
+            _as_html_paragraph(
+                f"This looks like a recurrence of a previously ticketed incident — "
+                f"{related_ticket_url}"
+            )
+        )
+    parts.append(f"<p><em>IIM incident: {incident_id}</em></p>")
+    return "".join(parts)
+
+
 @router.post("/{incident_id}/ticket", response_model=IncidentDetail)
 async def create_incident_ticket(
     incident_id: uuid.UUID,
@@ -335,23 +386,15 @@ async def create_incident_ticket(
         if known_incident is not None and known_incident.ticket_url:
             related_ticket_url = known_incident.ticket_url
 
-    # Azure DevOps rejects System.Title over 255 chars (TF401324) — the AI summary alone can
-    # exceed that, so truncate the whole title defensively rather than just the summary part.
-    title = f"[{analysis.severity.upper()}] {incident.service}: {analysis.summary}"
+    # A short, specific identifier (e.g. "ecs-easyrx-prod-external-svc-AlarmLow") reads far better
+    # as a ticket title than the full AI summary sentence — same headline already shown on the
+    # incident detail page. Azure DevOps also rejects System.Title over 255 chars (TF401324), so
+    # this is truncated defensively too even though it's normally well under that.
+    headline = mappers.build_headline(incident.context) or analysis.summary
+    title = f"[{analysis.severity.upper()}] {incident.service}: {headline}"
     if len(title) > 255:
         title = title[:252] + "..."
-    description = (
-        f"Summary: {analysis.summary}\n\n"
-        f"Root cause: {analysis.root_cause}\n\n"
-        f"Recommended action: {analysis.recommended_action}\n\n"
-        + (
-            f"Related: this looks like a recurrence of a previously ticketed incident — "
-            f"{related_ticket_url}\n\n"
-            if related_ticket_url
-            else ""
-        )
-        + f"IIM incident: {incident_id}"
-    )
+    description = _build_ticket_description(analysis, incident_id, related_ticket_url)
     try:
         ticket_url = await ticket_client.create_ticket(
             title, description, related_url=related_ticket_url
