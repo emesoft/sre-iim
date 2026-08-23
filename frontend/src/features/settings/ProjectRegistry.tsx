@@ -59,6 +59,10 @@ export function ProjectRegistry({
     null
   )
 
+  // Collapsed by default when creating a brand-new project — the ADO fields only show once the
+  // user opts in, so a plain "add a project" doesn't look like it demands Azure DevOps info.
+  const [showAdoFields, setShowAdoFields] = useState(false)
+
   const resetForm = () => {
     setName('')
     setOrg('')
@@ -67,6 +71,7 @@ export function ProjectRegistry({
     setWorkItemType('')
     setLockedProject(null)
     setEditingAdo(null)
+    setShowAdoFields(false)
   }
 
   const startAddAdo = (projectName: string) => {
@@ -208,52 +213,64 @@ export function ProjectRegistry({
           </label>
         )}
 
-        <p className="text-xs text-muted">
-          Azure DevOps ticket destination (optional) — fill these in to file tickets for this
-          project's incidents, or leave blank and add it later. AWS connections are added per
-          project below, once it exists.
-        </p>
-        <div className="flex gap-3">
-          <label className="flex-1 text-sm text-ink-2">
-            ADO organization
-            <input
-              value={org}
-              onChange={(e) => setOrg(e.target.value)}
-              placeholder="my-org"
-              className={inputCls}
-            />
-          </label>
-          <label className="flex-1 text-sm text-ink-2">
-            ADO project name
-            <input
-              value={adoProject}
-              onChange={(e) => setAdoProject(e.target.value)}
-              placeholder="EVP-Board"
-              className={inputCls}
-            />
-          </label>
-        </div>
-        <div className="flex gap-3">
-          <label className="flex-1 text-sm text-ink-2">
-            Personal Access Token
-            <input
-              type="password"
-              value={pat}
-              onChange={(e) => setPat(e.target.value)}
-              placeholder={editingAdo ? 'Leave blank to keep the current token' : ''}
-              className={inputCls}
-            />
-          </label>
-          <label className="flex-1 text-sm text-ink-2">
-            Work item type
-            <input
-              value={workItemType}
-              onChange={(e) => setWorkItemType(e.target.value)}
-              placeholder="Bug"
-              className={inputCls}
-            />
-          </label>
-        </div>
+        {lockedProject || showAdoFields ? (
+          <>
+            <p className="text-xs text-muted">
+              Azure DevOps ticket destination (optional) — fill these in to file tickets for this
+              project's incidents, or leave blank and add it later. AWS connections are added per
+              project below, once it exists.
+            </p>
+            <div className="flex gap-3">
+              <label className="flex-1 text-sm text-ink-2">
+                ADO organization
+                <input
+                  value={org}
+                  onChange={(e) => setOrg(e.target.value)}
+                  placeholder="my-org"
+                  className={inputCls}
+                />
+              </label>
+              <label className="flex-1 text-sm text-ink-2">
+                ADO project name
+                <input
+                  value={adoProject}
+                  onChange={(e) => setAdoProject(e.target.value)}
+                  placeholder="EVP-Board"
+                  className={inputCls}
+                />
+              </label>
+            </div>
+            <div className="flex gap-3">
+              <label className="flex-1 text-sm text-ink-2">
+                Personal Access Token
+                <input
+                  type="password"
+                  value={pat}
+                  onChange={(e) => setPat(e.target.value)}
+                  placeholder={editingAdo ? 'Leave blank to keep the current token' : ''}
+                  className={inputCls}
+                />
+              </label>
+              <label className="flex-1 text-sm text-ink-2">
+                Work item type
+                <input
+                  value={workItemType}
+                  onChange={(e) => setWorkItemType(e.target.value)}
+                  placeholder="Bug"
+                  className={inputCls}
+                />
+              </label>
+            </div>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowAdoFields(true)}
+            className="self-start text-sm text-accent hover:underline"
+          >
+            + Add an Azure DevOps ticket destination (optional)
+          </button>
+        )}
 
         {error && <p className="text-sm text-sev-critical">{error}</p>}
         <Button type="submit" disabled={busy === 'form'} className="self-start">
