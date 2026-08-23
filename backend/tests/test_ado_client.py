@@ -2,7 +2,7 @@
 
 import pytest
 
-from app.infrastructure.tickets.ado_client import AdoTicketClient
+from app.infrastructure.tickets.ado_client import AdoApiError, AdoTicketClient
 
 pytestmark = pytest.mark.asyncio
 
@@ -11,10 +11,11 @@ class _FakeResponse:
     def __init__(self, json_data=None, status_code=200):
         self._json = json_data or {}
         self.status_code = status_code
+        self.text = str(json_data or "")
 
-    def raise_for_status(self):
-        if self.status_code >= 400:
-            raise RuntimeError(f"HTTP {self.status_code}")
+    @property
+    def is_success(self):
+        return self.status_code < 400
 
     def json(self):
         return self._json
@@ -67,8 +68,25 @@ async def test_verify_raises_on_a_bad_response(monkeypatch):
     )
 
     client = AdoTicketClient(org="my-org", project="my-project", pat="bad-pat")
-    with pytest.raises(RuntimeError):
+    with pytest.raises(AdoApiError):
         await client.verify()
+
+
+async def test_create_ticket_raises_ado_api_error_with_the_response_message(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.infrastructure.tickets.ado_client.httpx.AsyncClient",
+        lambda **kw: _FakeAsyncClient(
+            calls,
+            post_response=_FakeResponse(
+                {"message": "TF401347: Work item type Bug does not exist"}, status_code=400
+            ),
+        ),
+    )
+
+    client = AdoTicketClient(org="my-org", project="my-project", pat="secret-pat")
+    with pytest.raises(AdoApiError, match="Work item type Bug does not exist"):
+        await client.create_ticket("title", "description")
 
 
 async def test_verify_succeeds_on_a_good_response(monkeypatch):

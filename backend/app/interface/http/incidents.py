@@ -26,6 +26,7 @@ from app.domain.incidents.ports import ChatRepository, IncidentRepository, Ticke
 from app.domain.shared import UnitOfWork
 from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.events import BusProgressReporter, IncidentEventBus
+from app.infrastructure.tickets.ado_client import AdoApiError
 from app.interface.http.deps import (
     get_ado_connection_repository,
     get_ado_ticket_client_factory,
@@ -320,13 +321,20 @@ async def create_incident_ticket(
         )
     ticket_client = ticket_client_factory(connection)
 
+    # Azure DevOps rejects System.Title over 255 chars (TF401324) — the AI summary alone can
+    # exceed that, so truncate the whole title defensively rather than just the summary part.
     title = f"[{analysis.severity.upper()}] {incident.service}: {analysis.summary}"
+    if len(title) > 255:
+        title = title[:252] + "..."
     description = (
         f"Root cause: {analysis.root_cause}\n\n"
         f"Recommended action: {analysis.recommended_action}\n\n"
         f"IIM incident: {incident_id}"
     )
-    ticket_url = await ticket_client.create_ticket(title, description)
+    try:
+        ticket_url = await ticket_client.create_ticket(title, description)
+    except AdoApiError as exc:
+        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     await repo.set_ticket_url(incident_id, ticket_url)
     await uow.commit()
     incident.ticket_url = ticket_url

@@ -16,6 +16,21 @@ from __future__ import annotations
 import httpx
 
 
+class AdoApiError(Exception):
+    """Azure DevOps rejected the request — carries its own error message (e.g. "Bug" isn't a
+    valid work item type for this project's process template) instead of a bare HTTP status."""
+
+
+def _raise_for_status_with_ado_message(resp: httpx.Response) -> None:
+    if resp.is_success:
+        return
+    try:
+        message = resp.json().get("message")
+    except ValueError:
+        message = None
+    raise AdoApiError(message or f"Azure DevOps returned HTTP {resp.status_code}: {resp.text[:500]}")
+
+
 class AdoTicketClient:
     """TicketClient backed by Azure DevOps work items, scoped to one org/project/PAT."""
 
@@ -40,7 +55,7 @@ class AdoTicketClient:
                 json=patch,
                 headers={"Content-Type": "application/json-patch+json"},
             )
-            resp.raise_for_status()
+            _raise_for_status_with_ado_message(resp)
             data = resp.json()
 
         html_link = data.get("_links", {}).get("html", {}).get("href")
@@ -55,4 +70,4 @@ class AdoTicketClient:
         url = f"https://dev.azure.com/{self._org}/_apis/projects/{self._project}?api-version=7.1"
         async with httpx.AsyncClient(auth=("", self._pat), timeout=15.0) as client:
             resp = await client.get(url)
-            resp.raise_for_status()
+            _raise_for_status_with_ado_message(resp)
