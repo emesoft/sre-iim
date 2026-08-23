@@ -11,21 +11,22 @@ export interface StatusMeta {
 }
 
 // This app's own lifecycle only ever sets new/analyzing/analyzed/failed/ticketed/resolved
-// (backend/app/domain/incidents/entities.py); those six map to the simpler New/In Progress/
-// Pending/Failed/Closed vocabulary below. The rest are legacy/generic labels kept for any status
-// string this app doesn't itself produce.
+// (backend/app/domain/incidents/entities.py) — the label mirrors that backend vocabulary
+// directly rather than inventing a simplified one, so what you see always matches the real
+// status name. The rest are legacy/generic labels kept for any status string this app doesn't
+// itself produce.
 const TABLE: Record<string, StatusMeta> = {
   new: { label: 'New', tone: 'info' },
-  analyzing: { label: 'In Progress', tone: 'info' },
-  analyzed: { label: 'Pending', tone: 'warning' },
+  analyzing: { label: 'Analyzing', tone: 'info' },
+  analyzed: { label: 'Analyzed', tone: 'warning' },
   failed: { label: 'Failed', tone: 'danger' },
-  ticketed: { label: 'In Progress', tone: 'accent' },
-  resolved: { label: 'Closed', tone: 'success' },
+  ticketed: { label: 'Ticketed', tone: 'accent' },
+  resolved: { label: 'Resolved', tone: 'success' },
   open: { label: 'Open', tone: 'warning' },
-  investigating: { label: 'In Progress', tone: 'info' },
-  triaged: { label: 'Pending', tone: 'accent' },
-  monitoring: { label: 'In Progress', tone: 'accent' },
-  mitigated: { label: 'Pending', tone: 'success' },
+  investigating: { label: 'Investigating', tone: 'info' },
+  triaged: { label: 'Triaged', tone: 'accent' },
+  monitoring: { label: 'Monitoring', tone: 'accent' },
+  mitigated: { label: 'Mitigated', tone: 'success' },
   closed: { label: 'Closed', tone: 'neutral' },
 }
 
