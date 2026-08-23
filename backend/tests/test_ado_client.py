@@ -59,6 +59,28 @@ async def test_create_ticket_returns_the_html_link(monkeypatch):
     assert "my-org/my-project" in calls[0][1]
     assert "$Bug" in calls[0][1]
 
+    patch = calls[0][2]
+    repro_ops = [op for op in patch if op["path"] == "/fields/Microsoft.VSTS.TCM.ReproSteps"]
+    assert len(repro_ops) == 1
+    assert repro_ops[0]["value"] == "description"
+
+
+async def test_create_ticket_does_not_set_repro_steps_for_non_bug_types(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.infrastructure.tickets.ado_client.httpx.AsyncClient",
+        lambda **kw: _FakeAsyncClient(calls),
+    )
+
+    client = AdoTicketClient(
+        org="my-org", project="my-project", pat="secret-pat", work_item_type="Task"
+    )
+    await client.create_ticket("title", "description")
+
+    patch = calls[0][2]
+    assert not any(op["path"] == "/fields/Microsoft.VSTS.TCM.ReproSteps" for op in patch)
+    assert any(op["path"] == "/fields/System.Description" for op in patch)
+
 
 async def test_verify_raises_on_a_bad_response(monkeypatch):
     calls = []

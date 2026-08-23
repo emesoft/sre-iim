@@ -58,6 +58,14 @@ class AdoTicketClient:
             {"op": "add", "path": "/fields/System.Title", "value": title},
             {"op": "add", "path": "/fields/System.Description", "value": description},
         ]
+        if self._work_item_type.lower() == "bug":
+            # Azure DevOps's "Bug" work item form doesn't render System.Description at all — it
+            # shows "Repro Steps" (Microsoft.VSTS.TCM.ReproSteps) as the main body instead, so the
+            # description above would otherwise be saved but invisible in the UI. Other work item
+            # types (Task, Issue, ...) do render System.Description, so only Bug needs this.
+            patch.append(
+                {"op": "add", "path": "/fields/Microsoft.VSTS.TCM.ReproSteps", "value": description}
+            )
         related_id = _extract_work_item_id(related_url) if related_url else None
         if related_id is not None:
             patch.append(
