@@ -136,11 +136,23 @@ class UserRow(Base):
     created_at: Mapped[datetime] = _utcnow_column()
 
 
+class ProjectRow(Base):
+    """The shared registry of project names — see `.claude/specs/2026-08-23-project-registry-design.md`."""
+
+    __tablename__ = "projects"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
 class CloudConnectionRow(Base):
     __tablename__ = "cloud_connections"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project: Mapped[str] = mapped_column(Text, nullable=False)
+    project: Mapped[str] = mapped_column(
+        Text, ForeignKey("projects.name", onupdate="CASCADE", ondelete="RESTRICT"), nullable=False
+    )
     env: Mapped[str] = mapped_column(Text, nullable=False)
     cloud: Mapped[str] = mapped_column(Text, nullable=False, default="aws")
     region: Mapped[str] = mapped_column(Text, nullable=False)
@@ -178,7 +190,10 @@ class AdoConnectionRow(Base):
     __tablename__ = "ado_connections"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    project: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    project: Mapped[str] = mapped_column(
+        Text, ForeignKey("projects.name", onupdate="CASCADE", ondelete="RESTRICT"),
+        nullable=False, unique=True,
+    )
     org: Mapped[str] = mapped_column(Text, nullable=False)
     ado_project: Mapped[str] = mapped_column(Text, nullable=False)
     encrypted_pat: Mapped[str] = mapped_column(Text, nullable=False)

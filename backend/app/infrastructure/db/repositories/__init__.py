@@ -18,6 +18,7 @@ from app.infrastructure.db.repositories.incidents import (
     SqlAlchemyAnalysisCacheRepository,
     SqlAlchemyIncidentRepository,
 )
+from app.infrastructure.db.repositories.projects import SqlAlchemyProjectRepository
 from app.infrastructure.db.repositories.unit_of_work import SqlAlchemyUnitOfWork
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "SqlAlchemyAppSettingsRepository",
     "SqlAlchemyChatRepository",
     "SqlAlchemyAdoConnectionRepository",
+    "SqlAlchemyProjectRepository",
 ]
