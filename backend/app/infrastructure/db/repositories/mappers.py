@@ -4,10 +4,12 @@ ensures no ORM type leaks past the infrastructure layer.
 
 from __future__ import annotations
 
+from app.domain.ado_connections.entities import AdoConnection
 from app.domain.cloud_connections.entities import CloudConnection, TrackedAlarm
 from app.domain.documents.entities import Document
 from app.domain.incidents.entities import Analysis, ChatMessage, ChatSession, Incident
 from app.infrastructure.db.orm import (
+    AdoConnectionRow,
     AnalysisRow,
     ChatMessageRow,
     ChatSessionRow,
@@ -114,5 +116,17 @@ def chat_session_to_domain(row: ChatSessionRow) -> ChatSession:
     return ChatSession(
         incident_id=row.incident_id,
         claude_session_id=row.claude_session_id,
+        created_at=row.created_at,
+    )
+
+
+def ado_connection_to_domain(row: AdoConnectionRow) -> AdoConnection:
+    return AdoConnection(
+        id=row.id,
+        project=row.project,
+        org=row.org,
+        ado_project=row.ado_project,
+        encrypted_pat=row.encrypted_pat,
+        work_item_type=row.work_item_type,
         created_at=row.created_at,
     )

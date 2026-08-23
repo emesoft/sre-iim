@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
@@ -18,6 +18,8 @@ from fastapi.responses import StreamingResponse
 from app.application.incidents.chat import IncidentChat
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.resolve import NoAnalysisToResolveError, ResolveIncident
+from app.domain.ado_connections.entities import AdoConnection
+from app.domain.ado_connections.ports import AdoConnectionRepository
 from app.domain.documents.ports import DocumentRepository
 from app.domain.incidents.entities import Incident
 from app.domain.incidents.ports import ChatRepository, IncidentRepository, TicketClient
@@ -25,6 +27,8 @@ from app.domain.shared import UnitOfWork
 from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.events import BusProgressReporter, IncidentEventBus
 from app.interface.http.deps import (
+    get_ado_connection_repository,
+    get_ado_ticket_client_factory,
     get_chat_repository,
     get_document_repository,
     get_event_bus,
@@ -32,7 +36,6 @@ from app.interface.http.deps import (
     get_incident_repository,
     get_ingest_incident,
     get_resolve_incident,
-    get_ticket_client,
     get_unit_of_work,
     resolve_background_incident_deps,
 )
@@ -287,11 +290,16 @@ async def create_incident_ticket(
     incident_id: uuid.UUID,
     repo: IncidentRepository = Depends(get_incident_repository),
     documents: DocumentRepository = Depends(get_document_repository),
-    ticket_client: TicketClient = Depends(get_ticket_client),
+    ado_connections: AdoConnectionRepository = Depends(get_ado_connection_repository),
+    ticket_client_factory: Callable[[AdoConnection], TicketClient] = Depends(
+        get_ado_ticket_client_factory
+    ),
     uow: UnitOfWork = Depends(get_unit_of_work),
 ) -> IncidentDetail:
     """Create an Azure DevOps work item for a genuinely new/unseen error and record its URL,
-    moving the incident to status "ticketed"."""
+    moving the incident to status "ticketed". Which ADO org/project to file into is resolved by
+    the incident's own project (`service`) — each internal project (EVP, rxdevs, ...) configures
+    its own Azure DevOps destination on the Settings page (`ado_connections`)."""
     incident = await repo.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
@@ -301,6 +309,16 @@ async def create_incident_ticket(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="incident has no analysis to file a ticket from",
         )
+    connection = await ado_connections.get_by_project(incident.service)
+    if connection is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                f"No Azure DevOps project configured for '{incident.service}' — "
+                "add one on the Settings page"
+            ),
+        )
+    ticket_client = ticket_client_factory(connection)
 
     title = f"[{analysis.severity.upper()}] {incident.service}: {analysis.summary}"
     description = (

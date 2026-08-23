@@ -32,6 +32,7 @@ from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
 from app.infrastructure.cloud.credential_resolver import CredentialResolver
 from app.infrastructure.security.encryptor import Encryptor
+from app.interface.http.ado_connections import router as ado_connections_router
 from app.interface.http.auth import router as auth_router
 from app.interface.http.cloud_connections import router as cloud_connections_router
 from app.interface.http.deps import get_analyzer, get_base_analyzer, get_embedder
@@ -108,6 +109,7 @@ app.include_router(incidents_router)
 app.include_router(documents_router)
 app.include_router(reports_router)
 app.include_router(cloud_connections_router)
+app.include_router(ado_connections_router)
 app.include_router(settings_router)
 app.include_router(auth_router)
 

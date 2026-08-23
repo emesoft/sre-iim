@@ -1,5 +1,6 @@
 """Domain -> response DTO mappers, one module per resource. Re-exported for `mappers.<fn>()` calls."""
 
+from app.interface.http.dto.mappers.ado_connection import ado_connection_out
 from app.interface.http.dto.mappers.cloud_connection import cloud_connection_out
 from app.interface.http.dto.mappers.document import document_summary
 from app.interface.http.dto.mappers.incident import (
@@ -16,4 +17,5 @@ __all__ = [
     "chat_message_out",
     "document_summary",
     "cloud_connection_out",
+    "ado_connection_out",
 ]

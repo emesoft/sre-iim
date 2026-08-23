@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING
 from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.application.ado_connections.manage import ManageAdoConnections
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
 from app.application.documents.ingest import IngestDocument
@@ -23,6 +24,8 @@ from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
+from app.domain.ado_connections.entities import AdoConnection
+from app.domain.ado_connections.ports import AdoConnectionRepository
 from app.domain.cloud_connections.ports import AlarmFetcher, CloudConnectionRepository
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
 from app.domain.incidents.ports import (
@@ -38,6 +41,7 @@ from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
 from app.infrastructure.cloud.credential_resolver import CredentialResolver
 from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.db.repositories import (
+    SqlAlchemyAdoConnectionRepository,
     SqlAlchemyAnalysisCacheRepository,
     SqlAlchemyAppSettingsRepository,
     SqlAlchemyChatRepository,
@@ -212,12 +216,6 @@ def get_unit_of_work(session: AsyncSession = Depends(get_session)) -> SqlAlchemy
     return SqlAlchemyUnitOfWork(session)
 
 
-def get_ticket_client() -> TicketClient:
-    """Azure DevOps ticket client for the incident ticketing action. Tests override this to avoid
-    a real ADO call."""
-    return AdoTicketClient(get_settings())
-
-
 def get_document_repository(
     session: AsyncSession = Depends(get_session),
 ) -> DocumentRepository:
@@ -301,6 +299,39 @@ def require_admin(
 
 def get_encryptor() -> Encryptor:
     return Encryptor(get_settings().secret_encryption_key)
+
+
+def get_ado_connection_repository(
+    session: AsyncSession = Depends(get_session),
+) -> AdoConnectionRepository:
+    return SqlAlchemyAdoConnectionRepository(session)
+
+
+def get_manage_ado_connections(
+    connections: AdoConnectionRepository = Depends(get_ado_connection_repository),
+    encryptor: Encryptor = Depends(get_encryptor),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+) -> ManageAdoConnections:
+    return ManageAdoConnections(connections=connections, encryptor=encryptor, uow=uow)
+
+
+def get_ado_ticket_client_factory(
+    encryptor: Encryptor = Depends(get_encryptor),
+) -> Callable[[AdoConnection], TicketClient]:
+    """Builds a `TicketClient` scoped to one resolved `AdoConnection` — a factory (not a plain
+    `TicketClient` dependency) because which org/project/PAT to use isn't known until the
+    incident's project has been looked up (`POST /api/incidents/{id}/ticket`, see incidents.py).
+    Tests override this to avoid a real ADO call."""
+
+    def _factory(connection: AdoConnection) -> TicketClient:
+        return AdoTicketClient(
+            org=connection.org,
+            project=connection.ado_project,
+            pat=encryptor.decrypt(connection.encrypted_pat),
+            work_item_type=connection.work_item_type,
+        )
+
+    return _factory
 
 
 def get_app_settings_repository(

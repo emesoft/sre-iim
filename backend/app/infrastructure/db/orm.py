@@ -174,6 +174,18 @@ class TrackedAlarmRow(Base):
     updated_at: Mapped[datetime] = _utcnow_column()
 
 
+class AdoConnectionRow(Base):
+    __tablename__ = "ado_connections"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    project: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    org: Mapped[str] = mapped_column(Text, nullable=False)
+    ado_project: Mapped[str] = mapped_column(Text, nullable=False)
+    encrypted_pat: Mapped[str] = mapped_column(Text, nullable=False)
+    work_item_type: Mapped[str] = mapped_column(Text, nullable=False, default="Bug")
+    created_at: Mapped[datetime] = _utcnow_column()
+
+
 class AppSettingRow(Base):
     """Generic encrypted key-value store for app-wide secrets (e.g. the Claude Code headless
     OAuth token entered on the Settings page) that don't fit the per-project cloud_connections

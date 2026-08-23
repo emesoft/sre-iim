@@ -47,10 +47,8 @@ services:
       JINA_API_KEY: ${JINA_API_KEY:-}
       # --- Demo mode: synthetic log lines, no cloud account needed ---
       DEMO_LOGS: ${DEMO_LOGS:-false}
-      # --- Azure DevOps ticketing (the one-click ticket action is inert without these) ---
-      AZDO_ORG: ${AZDO_ORG:-}
-      AZDO_PROJECT: ${AZDO_PROJECT:-}
-      AZDO_PAT: ${AZDO_PAT:-}
+      # Azure DevOps ticketing is now per-project, configured via the Settings page
+      # (ado_connections table) rather than env vars — see infrastructure/tickets/ado_client.py.
       # --- CloudWatch alarm polling: encryption key for storing access keys ---
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
       # --- Settings-page admin gate: single shared password, not per-user accounts ---

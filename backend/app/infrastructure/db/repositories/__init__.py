@@ -3,6 +3,7 @@
 Re-exported so callers can `from app.infrastructure.db.repositories import SqlAlchemy...`.
 """
 
+from app.infrastructure.db.repositories.ado_connections import SqlAlchemyAdoConnectionRepository
 from app.infrastructure.db.repositories.app_settings import SqlAlchemyAppSettingsRepository
 from app.infrastructure.db.repositories.chat import SqlAlchemyChatRepository
 from app.infrastructure.db.repositories.cloud_connections import (
@@ -29,4 +30,5 @@ __all__ = [
     "SqlAlchemyTrackedAlarmRepository",
     "SqlAlchemyAppSettingsRepository",
     "SqlAlchemyChatRepository",
+    "SqlAlchemyAdoConnectionRepository",
 ]

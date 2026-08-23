@@ -76,11 +76,8 @@ class Settings(BaseSettings):
     # --- Cache ---
     cache_ttl_seconds: int = 1800  # 30 min, matches Step 0 CACHE_TTL_SECONDS
 
-    # --- Ticketing (Azure DevOps) ---
-    azdo_org: str | None = None
-    azdo_project: str | None = None
-    azdo_pat: str | None = None
-    azdo_work_item_type: str = "Bug"
+    # Ticketing (Azure DevOps) is configured per internal project via the `ado_connections`
+    # table (Settings page), not a global env var — see infrastructure/tickets/ado_client.py.
 
     # --- Cloud connections (CloudWatch alarm polling) ---
     secret_encryption_key: str = ""  # Fernet key (44-char urlsafe base64); required to store access keys

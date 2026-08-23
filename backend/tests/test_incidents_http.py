@@ -13,6 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.domain.ado_connections.entities import AdoConnection
 from app.domain.incidents.entities import AnalysisDraft
 from app.infrastructure.db.orm import (
     EMBED_DIM,
@@ -24,10 +25,11 @@ from app.infrastructure.db.orm import (
     IncidentRow,
 )
 from app.interface.http.deps import (
+    get_ado_connection_repository,
+    get_ado_ticket_client_factory,
     get_base_analyzer,
     get_embedder,
     get_session,
-    get_ticket_client,
 )
 from app.main import app
 from tests.sse_test_utils import iter_sse
@@ -70,6 +72,17 @@ class _FakeTicketClient:
         return "https://dev.azure.com/fake-org/fake-project/_workitems/edit/123"
 
 
+class _FakeAdoConnectionRepo:
+    """Every project has an (unused, fake) ADO connection configured — the tests exercise the
+    ticket-creation flow itself, not per-project ADO configuration."""
+
+    async def get_by_project(self, project):
+        return AdoConnection(
+            id=uuid.uuid4(), project=project, org="fake-org", ado_project="fake-project",
+            encrypted_pat="unused",
+        )
+
+
 @pytest.fixture()
 async def client():
     engine = create_async_engine(_DB_URL)
@@ -97,7 +110,10 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
-    app.dependency_overrides[get_ticket_client] = lambda: _FakeTicketClient()
+    app.dependency_overrides[get_ado_connection_repository] = lambda: _FakeAdoConnectionRepo()
+    app.dependency_overrides[get_ado_ticket_client_factory] = lambda: (
+        lambda connection: _FakeTicketClient()
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
