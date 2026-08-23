@@ -11,3 +11,6 @@ class SqlAlchemyUnitOfWork:
 
     async def commit(self) -> None:
         await self._s.commit()
+
+    async def rollback(self) -> None:
+        await self._s.rollback()

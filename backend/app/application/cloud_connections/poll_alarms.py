@@ -75,6 +75,11 @@ class PollAlarmsJob:
                 for alarm in alarms:
                     await self._apply(connection, alarm)
             except Exception as exc:  # noqa: BLE001 - isolate this connection's failure, keep polling others
+                # A failure partway through (e.g. a DB flush error inside `_apply`) leaves the
+                # session unable to run further statements until it's rolled back — without this,
+                # `record_poll_result` below raises `PendingRollbackError` and the whole request
+                # 500s instead of isolating just this connection.
+                await self.uow.rollback()
                 await self.connections.record_poll_result(
                     connection.id, status="error", error=str(exc)
                 )

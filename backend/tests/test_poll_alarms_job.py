@@ -83,6 +83,9 @@ class FakeUnitOfWork:
     async def commit(self):
         pass
 
+    async def rollback(self):
+        pass
+
 
 def _connection(**kw):
     return CloudConnection(
