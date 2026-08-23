@@ -237,6 +237,24 @@ async def test_env_is_null_without_one_in_context(client):
     assert r.json()["env"] is None
 
 
+async def test_list_returns_one_row_per_incident_even_when_reanalyzed(client):
+    """A second `/analyze` call on an already-analyzed incident adds another Analysis row (this
+    is exactly how the real demo produced 3 duplicate rows for one incident in the sidebar) — the
+    list must still return exactly one row per incident, keyed to its latest analysis."""
+    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
+    incident_id = r.json()["incident_id"]
+    await _await_analyzed(client, incident_id)
+
+    r = await client.post(f"/api/incidents/{incident_id}/analyze")
+    assert r.status_code == 200, r.text
+    await _await_analyzed(client, incident_id)
+
+    r = await client.get("/api/incidents")
+    assert r.status_code == 200
+    matching = [i for i in r.json() if i["id"] == incident_id]
+    assert len(matching) == 1
+
+
 async def test_resolve_saves_case_and_next_similar_incident_flags_known_issue(client):
     r1 = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
     incident1_id = r1.json()["incident_id"]
