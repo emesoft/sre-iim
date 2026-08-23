@@ -133,9 +133,10 @@ export function IncidentDetail({
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          {d.status === 'new' && (
+          {(d.status === 'new' || d.status === 'failed') && (
             <AnalyzeButton
               incidentId={d.id}
+              retry={d.status === 'failed'}
               onAnalyzeStarted={() => setD({ ...d, status: 'analyzing' })}
             />
           )}
@@ -344,9 +345,11 @@ function RecommendedAction({ text }: { text: string }) {
 
 function AnalyzeButton({
   incidentId,
+  retry,
   onAnalyzeStarted,
 }: {
   incidentId: string
+  retry?: boolean
   onAnalyzeStarted: () => void
 }) {
   const [loading, setLoading] = useState(false)
@@ -365,7 +368,7 @@ function AnalyzeButton({
   return (
     <div className="flex flex-col items-end gap-1">
       <Button onClick={analyze} disabled={loading}>
-        <Sparkles size={15} /> {loading ? 'Starting…' : 'Analyze with AI'}
+        <Sparkles size={15} /> {loading ? 'Starting…' : retry ? 'Retry analysis' : 'Analyze with AI'}
       </Button>
       {err && <p className="max-w-[220px] text-right text-xs text-sev-critical">{err}</p>}
     </div>
