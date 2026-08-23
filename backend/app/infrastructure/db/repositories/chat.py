@@ -51,7 +51,7 @@ class SqlAlchemyChatRepository:
         stmt = (
             select(ChatMessageRow)
             .where(ChatMessageRow.incident_id == incident_id)
-            .order_by(ChatMessageRow.created_at.asc())
+            .order_by(ChatMessageRow.seq.asc())
         )
         rows = (await self._s.execute(stmt)).scalars().all()
         return [chat_message_to_domain(row) for row in rows]

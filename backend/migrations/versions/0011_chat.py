@@ -28,7 +28,7 @@ def upgrade() -> None:
         sa.Column(
             "incident_id",
             postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("incidents.id"),
+            sa.ForeignKey("incidents.id", ondelete="CASCADE"),
             primary_key=True,
         ),
         sa.Column("claude_session_id", postgresql.UUID(as_uuid=True), nullable=False),
@@ -39,8 +39,12 @@ def upgrade() -> None:
     op.create_table(
         "chat_messages",
         sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True),
+        sa.Column("seq", sa.BigInteger(), sa.Identity(always=False), nullable=False),
         sa.Column(
-            "incident_id", postgresql.UUID(as_uuid=True), sa.ForeignKey("incidents.id"), nullable=False
+            "incident_id",
+            postgresql.UUID(as_uuid=True),
+            sa.ForeignKey("incidents.id", ondelete="CASCADE"),
+            nullable=False,
         ),
         sa.Column("role", sa.Text(), nullable=False),  # user | assistant
         sa.Column("content", sa.Text(), nullable=False),

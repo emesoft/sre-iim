@@ -13,7 +13,18 @@ import uuid
 from datetime import datetime
 
 from pgvector.sqlalchemy import Vector
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Identity,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -181,7 +192,7 @@ class ChatSessionRow(Base):
     __tablename__ = "chat_sessions"
 
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("incidents.id"), primary_key=True
+        UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="CASCADE"), primary_key=True
     )
     claude_session_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     created_at: Mapped[datetime] = _utcnow_column()
@@ -191,8 +202,11 @@ class ChatMessageRow(Base):
     __tablename__ = "chat_messages"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Monotonic insert order, distinct from `id`/PK — a chat turn's user+assistant rows share one
+    # transaction so `created_at` (transaction start time) ties; this is the tie-break for ordering.
+    seq: Mapped[int] = mapped_column(BigInteger, Identity(always=False), nullable=False)
     incident_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("incidents.id"), nullable=False, index=True
+        UUID(as_uuid=True), ForeignKey("incidents.id", ondelete="CASCADE"), nullable=False, index=True
     )
     role: Mapped[str] = mapped_column(Text, nullable=False)  # user | assistant
     content: Mapped[str] = mapped_column(Text, nullable=False)
