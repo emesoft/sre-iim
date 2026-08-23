@@ -327,6 +327,7 @@ async def create_incident_ticket(
     if len(title) > 255:
         title = title[:252] + "..."
     description = (
+        f"Summary: {analysis.summary}\n\n"
         f"Root cause: {analysis.root_cause}\n\n"
         f"Recommended action: {analysis.recommended_action}\n\n"
         f"IIM incident: {incident_id}"
