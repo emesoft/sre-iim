@@ -121,6 +121,13 @@ def get_incident_repository(
     return SqlAlchemyIncidentRepository(session)
 
 
+# Below this cosine similarity, a retrieved chunk is noise, not evidence — cuts token spend on
+# irrelevant runbooks and stops the AI citing something unrelated as if it were grounded evidence.
+# Picked empirically: a genuinely relevant runbook scored ~0.52 against a real incident's alert
+# text, while unrelated ones in the same knowledge base scored ~0.18-0.39.
+RETRIEVAL_MIN_SIMILARITY = 0.4
+
+
 def get_analyzer(
     session: AsyncSession = Depends(get_session),
     base: Analyzer = Depends(get_base_analyzer),
@@ -144,8 +151,11 @@ def get_analyzer(
             retriever,
             model_label=f"graph:{main_model}",
             max_rounds=settings.max_rounds,
+            min_similarity=RETRIEVAL_MIN_SIMILARITY,
         )
-    return RagAnalyzer(base=base, embedder=embedder, retriever=retriever)
+    return RagAnalyzer(
+        base=base, embedder=embedder, retriever=retriever, min_similarity=RETRIEVAL_MIN_SIMILARITY
+    )
 
 
 def get_ingest_incident(
