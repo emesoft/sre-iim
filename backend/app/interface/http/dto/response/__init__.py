@@ -11,12 +11,11 @@ from app.interface.http.dto.response.document import DocumentCreatedResponse, Do
 from app.interface.http.dto.response.health import HealthResponse
 from app.interface.http.dto.response.incident import (
     AnalysisOut,
+    ChatMessageOut,
     IncidentCreatedResponse,
     IncidentDetail,
     IncidentSummary,
     KnownIssueOut,
-    LogEventOut,
-    LogSearchResult,
 )
 from app.interface.http.dto.response.report import DailyReportOut, ReportIncidentOut
 from app.interface.http.dto.response.settings import LlmUsageOut, SettingStatus, UsageByModelOut
@@ -27,8 +26,7 @@ __all__ = [
     "IncidentSummary",
     "IncidentDetail",
     "KnownIssueOut",
-    "LogEventOut",
-    "LogSearchResult",
+    "ChatMessageOut",
     "DocumentCreatedResponse",
     "DocumentSummary",
     "HealthResponse",

@@ -9,25 +9,28 @@ from __future__ import annotations
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import StreamingResponse
 
+from app.application.incidents.chat import IncidentChat
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.resolve import NoAnalysisToResolveError, ResolveIncident
 from app.domain.documents.ports import DocumentRepository
 from app.domain.incidents.entities import Incident
-from app.domain.incidents.ports import IncidentRepository, LogFetcher, TicketClient
+from app.domain.incidents.ports import ChatRepository, IncidentRepository, TicketClient
 from app.domain.shared import UnitOfWork
+from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.events import BusProgressReporter, IncidentEventBus
 from app.interface.http.deps import (
+    get_chat_repository,
     get_document_repository,
     get_event_bus,
+    get_incident_chat,
     get_incident_repository,
     get_ingest_incident,
-    get_log_fetcher_factory,
     get_resolve_incident,
     get_ticket_client,
     get_unit_of_work,
@@ -35,16 +38,15 @@ from app.interface.http.deps import (
 )
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import (
+    ChatMessageRequest,
     IncidentIngestRequest,
-    LogSearchRequest,
     ResolveIncidentRequest,
 )
 from app.interface.http.dto.response import (
+    ChatMessageOut,
     IncidentCreatedResponse,
     IncidentDetail,
     IncidentSummary,
-    LogEventOut,
-    LogSearchResult,
 )
 
 if TYPE_CHECKING:
@@ -183,45 +185,40 @@ async def stream_incident(
     return StreamingResponse(_events(), media_type="text/event-stream")
 
 
-@router.post("/{incident_id}/logs/search", response_model=LogSearchResult)
-async def search_incident_logs(
+@router.get("/{incident_id}/chat", response_model=list[ChatMessageOut])
+async def list_chat_messages(
     incident_id: uuid.UUID,
-    body: LogSearchRequest,
     repo: IncidentRepository = Depends(get_incident_repository),
-    documents: DocumentRepository = Depends(get_document_repository),
-    ingest: IngestIncident = Depends(get_ingest_incident),
-    log_fetcher_factory: Callable[[str], LogFetcher] = Depends(get_log_fetcher_factory),
-) -> LogSearchResult:
-    """Fetch real log lines for `log_group` via the incident's project cloud (CloudWatch today),
-    merge them into the incident's context as `sample_logs`, and re-run analysis grounded in the
-    real logs."""
+    chat: ChatRepository = Depends(get_chat_repository),
+) -> list[ChatMessageOut]:
     incident = await repo.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    messages = await chat.list_messages(incident_id)
+    return [mappers.chat_message_out(m) for m in messages]
 
-    log_fetcher = log_fetcher_factory(incident.service)
-    events = await log_fetcher.fetch_logs(
-        body.log_group, body.start, body.end, body.filter_pattern
-    )
-    # Keys match what the analysis prompt renders per line (`ts`, `level`, `message`, see
-    # domain/incidents/prompts.py) and what the hand-pasted samples already use — otherwise every
-    # fetched line reaches the model as "None None <message>".
-    sample_logs = [
-        {"ts": e.timestamp.isoformat(), "level": e.level, "message": e.message} for e in events
-    ]
-    context = {**incident.context, "sample_logs": sample_logs}
 
-    analysis = await ingest.reanalyze_with_context(
-        incident, context=context, log_group=body.log_group
-    )
-    evidence = await documents.evidence_refs(list(analysis.evidence_chunk_ids))
-    return LogSearchResult(
-        log_group=body.log_group,
-        log_events=[
-            LogEventOut(timestamp=e.timestamp, message=e.message, level=e.level) for e in events
-        ],
-        analysis=mappers.analysis_out(analysis, evidence),
-    )
+@router.post("/{incident_id}/chat", response_model=ChatMessageOut)
+async def send_chat_message(
+    incident_id: uuid.UUID,
+    body: ChatMessageRequest,
+    repo: IncidentRepository = Depends(get_incident_repository),
+    incident_chat: IncidentChat = Depends(get_incident_chat),
+    settings: Settings = Depends(get_settings),
+) -> ChatMessageOut:
+    """Chat about one incident, grounded in its raw context — Claude can autonomously call a
+    fetch_logs tool mid-conversation (design spec .claude/specs/2026-08-23-incident-chat-design.md).
+    Only implemented for LLM_PROVIDER=claude_cli — see that spec's "Why claude_cli only" section."""
+    if settings.llm_provider != "claude_cli":
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail="incident chat requires LLM_PROVIDER=claude_cli",
+        )
+    incident = await repo.get(incident_id)
+    if incident is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    reply = await incident_chat.send_message(incident, body.message)
+    return mappers.chat_message_out(reply)
 
 
 @router.get("", response_model=list[IncidentSummary])

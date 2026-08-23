@@ -18,13 +18,20 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
 from app.application.documents.ingest import IngestDocument
+from app.application.incidents.chat import IncidentChat
 from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
 from app.domain.cloud_connections.ports import AlarmFetcher, CloudConnectionRepository
 from app.domain.documents.ports import DocumentRepository, Embedder, Retriever
-from app.domain.incidents.ports import Analyzer, IncidentRepository, LogFetcher, TicketClient
+from app.domain.incidents.ports import (
+    Analyzer,
+    ChatRepository,
+    IncidentRepository,
+    LogFetcher,
+    TicketClient,
+)
 from app.domain.llm import ChatModel
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
@@ -33,6 +40,7 @@ from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.db.repositories import (
     SqlAlchemyAnalysisCacheRepository,
     SqlAlchemyAppSettingsRepository,
+    SqlAlchemyChatRepository,
     SqlAlchemyCloudConnectionRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyIncidentRepository,
@@ -45,7 +53,7 @@ from app.infrastructure.events import IncidentEventBus, default_bus
 from app.infrastructure.graph.analyzer import GraphAnalyzer
 from app.infrastructure.llm.bedrock_analyzer import BedrockAnalyzer
 from app.infrastructure.llm.chat import BedrockChatModel, DeepSeekChatModel
-from app.infrastructure.llm.claude_cli import ClaudeCliAnalyzer, ClaudeCliChatModel
+from app.infrastructure.llm.claude_cli import ClaudeCliAnalyzer, ClaudeCliChat, ClaudeCliChatModel
 from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
@@ -155,6 +163,23 @@ def get_log_fetcher_factory() -> Callable[[str], LogFetcher]:
     avoid a real AWS call."""
     settings = get_settings()
     return lambda service: build_log_fetcher(service, settings)
+
+
+def get_chat_repository(session: AsyncSession = Depends(get_session)) -> ChatRepository:
+    return SqlAlchemyChatRepository(session)
+
+
+def get_incident_chat(
+    session: AsyncSession = Depends(get_session),
+    incidents: IncidentRepository = Depends(get_incident_repository),
+    chat: ChatRepository = Depends(get_chat_repository),
+) -> IncidentChat:
+    return IncidentChat(
+        incidents=incidents,
+        chat=chat,
+        claude_chat=ClaudeCliChat(get_settings()),
+        uow=SqlAlchemyUnitOfWork(session),
+    )
 
 
 def get_daily_report(

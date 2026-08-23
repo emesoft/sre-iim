@@ -83,17 +83,12 @@ class IncidentDetail(BaseModel):
     error_message: str | None = None
 
 
-class LogEventOut(BaseModel):
-    """One log line returned by a log search."""
+class ChatMessageOut(BaseModel):
+    """One row in `GET /api/incidents/{id}/chat`, and the response of `POST .../chat`."""
 
-    timestamp: datetime
-    message: str
-    level: str | None = None
-
-
-class LogSearchResult(BaseModel):
-    """`POST /api/incidents/{id}/logs/search` response: fetched log lines + the re-run analysis."""
-
-    log_group: str
-    log_events: list[LogEventOut]
-    analysis: AnalysisOut
+    id: uuid.UUID
+    role: str  # user | assistant
+    content: str
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    created_at: datetime

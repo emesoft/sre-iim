@@ -6,9 +6,10 @@ import re
 from collections.abc import Sequence
 
 from app.domain.documents.entities import EvidenceRef
-from app.domain.incidents.entities import Analysis, Incident
+from app.domain.incidents.entities import Analysis, ChatMessage, Incident
 from app.interface.http.dto.response.incident import (
     AnalysisOut,
+    ChatMessageOut,
     IncidentDetail,
     IncidentSummary,
     KnownIssueOut,
@@ -101,4 +102,15 @@ def incident_detail(
         headline=_headline(incident.context),
         env=incident.context.get("env"),
         error_message=incident.error_message,
+    )
+
+
+def chat_message_out(message: ChatMessage) -> ChatMessageOut:
+    return ChatMessageOut(
+        id=message.id,
+        role=message.role,
+        content=message.content,
+        input_tokens=message.input_tokens,
+        output_tokens=message.output_tokens,
+        created_at=message.created_at,
     )

@@ -13,7 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.domain.incidents.entities import AnalysisDraft, LogEvent
+from app.domain.incidents.entities import AnalysisDraft
 from app.infrastructure.db.orm import (
     EMBED_DIM,
     AnalysisCacheRow,
@@ -26,7 +26,6 @@ from app.infrastructure.db.orm import (
 from app.interface.http.deps import (
     get_base_analyzer,
     get_embedder,
-    get_log_fetcher_factory,
     get_session,
     get_ticket_client,
 )
@@ -66,13 +65,6 @@ class _FakeEmbedder:
         return [0.1] * EMBED_DIM
 
 
-class _FakeLogFetcher:
-    async def fetch_logs(self, log_group, start, end, filter_pattern=None):
-        return [
-            LogEvent(timestamp=start, message="[CRITICAL] medusa-api HTTP 500: GET /admin-portal"),
-        ]
-
-
 class _FakeTicketClient:
     async def create_ticket(self, title, description):
         return "https://dev.azure.com/fake-org/fake-project/_workitems/edit/123"
@@ -105,7 +97,6 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
-    app.dependency_overrides[get_log_fetcher_factory] = lambda: lambda service: _FakeLogFetcher()
     app.dependency_overrides[get_ticket_client] = lambda: _FakeTicketClient()
 
     transport = ASGITransport(app=app)
@@ -246,31 +237,6 @@ async def test_env_is_null_without_one_in_context(client):
     assert r.json()["env"] is None
 
 
-async def test_log_search_merges_logs_and_reanalyzes(client):
-    r = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
-    incident_id = r.json()["incident_id"]
-    await _await_analyzed(client, incident_id)
-
-    r = await client.post(
-        f"/api/incidents/{incident_id}/logs/search",
-        json={
-            "log_group": "/ecs/prod-storefront-logs",
-            "start": "2026-07-25T00:00:00Z",
-            "end": "2026-07-25T01:00:00Z",
-        },
-    )
-    assert r.status_code == 200, r.text
-    body = r.json()
-    assert body["log_group"] == "/ecs/prod-storefront-logs"
-    assert len(body["log_events"]) == 1
-    assert "500" in body["log_events"][0]["message"]
-    assert body["analysis"]["severity"] == "critical"
-
-    detail = (await client.get(f"/api/incidents/{incident_id}")).json()
-    assert detail["log_group"] == "/ecs/prod-storefront-logs"
-    assert detail["context"]["sample_logs"][0]["message"] == body["log_events"][0]["message"]
-
-
 async def test_resolve_saves_case_and_next_similar_incident_flags_known_issue(client):
     r1 = await client.post("/api/incidents", json={"source": "manual", "context": _CTX})
     incident1_id = r1.json()["incident_id"]
@@ -320,18 +286,6 @@ async def test_resolve_404_for_unknown_incident(client):
     r = await client.post(
         "/api/incidents/00000000-0000-0000-0000-000000000000/resolve",
         json={"resolution_notes": "n/a"},
-    )
-    assert r.status_code == 404
-
-
-async def test_log_search_404_for_unknown_incident(client):
-    r = await client.post(
-        "/api/incidents/00000000-0000-0000-0000-000000000000/logs/search",
-        json={
-            "log_group": "/ecs/prod-storefront-logs",
-            "start": "2026-07-25T00:00:00Z",
-            "end": "2026-07-25T01:00:00Z",
-        },
     )
     assert r.status_code == 404
 
