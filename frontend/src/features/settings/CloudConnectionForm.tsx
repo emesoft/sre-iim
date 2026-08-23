@@ -13,6 +13,7 @@ const inputCls =
 export function CloudConnectionForm({
   editing,
   projects,
+  lockedProject,
   onCreated,
   onUpdated,
   onCancelEdit,
@@ -20,6 +21,9 @@ export function CloudConnectionForm({
   /** When set, the form edits this connection (PATCH) instead of creating a new one (POST). */
   editing?: CloudConnection | null
   projects: Project[]
+  /** When set, this form belongs to one project's card — the Project dropdown is hidden and
+   * every submission uses this name instead. */
+  lockedProject?: string
   onCreated?: (c: CloudConnection) => void
   onUpdated?: (c: CloudConnection) => void
   onCancelEdit?: () => void
@@ -47,9 +51,13 @@ export function CloudConnectionForm({
   }, [editing])
 
   useEffect(() => {
+    if (lockedProject) {
+      setProject(lockedProject)
+      return
+    }
     if (editing || project || projects.length === 0) return
     setProject(projects[0].name)
-  }, [projects, editing, project])
+  }, [projects, editing, project, lockedProject])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -95,25 +103,26 @@ export function CloudConnectionForm({
         </div>
       )}
       <div className="flex gap-3">
-        {projects.length === 0 ? (
-          <p className="flex-1 text-sm text-muted">No projects yet — add one above.</p>
-        ) : (
-          <label className="flex-1 text-sm text-ink-2">
-            Project
-            <select
-              value={project}
-              onChange={(e) => setProject(e.target.value)}
-              className={inputCls}
-              required
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.name}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        )}
+        {!lockedProject &&
+          (projects.length === 0 ? (
+            <p className="flex-1 text-sm text-muted">No projects yet — add one above.</p>
+          ) : (
+            <label className="flex-1 text-sm text-ink-2">
+              Project
+              <select
+                value={project}
+                onChange={(e) => setProject(e.target.value)}
+                className={inputCls}
+                required
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.name}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          ))}
         <SelectOrOtherField label="Env" options={KNOWN_ENVS} value={env} onChange={setEnv} />
         <SelectOrOtherField label="Region" options={KNOWN_REGIONS} value={region} onChange={setRegion} />
       </div>

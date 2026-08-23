@@ -2,8 +2,6 @@ import { useEffect, useState } from 'react'
 import { api, errText } from '../lib/api'
 import type { AdoConnection, CloudConnection, PollResult, PollSchedule, Project } from '../lib/types'
 import { ProjectRegistry } from '../features/settings/ProjectRegistry'
-import { CloudConnectionForm } from '../features/settings/CloudConnectionForm'
-import { CloudConnectionTable } from '../features/settings/CloudConnectionTable'
 import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
 import { LlmUsageCard } from '../features/settings/LlmUsageCard'
 import { AdminGate } from '../features/settings/AdminGate'
@@ -27,24 +25,17 @@ export function Settings() {
 
 function SettingsContent() {
   const [connections, setConnections] = useState<CloudConnection[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [refreshResult, setRefreshResult] = useState<{ ok: boolean; text: string } | null>(null)
-  const [editing, setEditing] = useState<CloudConnection | null>(null)
   const [schedule, setSchedule] = useState<PollSchedule | null>(null)
   const [adoConnections, setAdoConnections] = useState<AdoConnection[]>([])
   const [projects, setProjects] = useState<Project[]>([])
 
   const load = async () => {
-    setLoading(true)
-    setError(null)
     try {
       setConnections(await api.get<CloudConnection[]>('/api/cloud-connections'))
-    } catch (e) {
-      setError(errText(e))
-    } finally {
-      setLoading(false)
+    } catch {
+      setConnections([]) // non-critical — each project's card just shows no AWS connections yet
     }
   }
 
@@ -52,7 +43,7 @@ function SettingsContent() {
     try {
       setSchedule(await api.get<PollSchedule>('/api/cloud-connections/poll-schedule'))
     } catch {
-      setSchedule(null) // non-critical — the table/refresh flow works without it
+      setSchedule(null) // non-critical — the refresh-all flow works without it
     }
   }
 
@@ -68,7 +59,7 @@ function SettingsContent() {
     try {
       setProjects(await api.get<Project[]>('/api/projects'))
     } catch {
-      setProjects([]) // non-critical — forms just show "No projects yet" until this loads
+      setProjects([]) // non-critical — the registry just shows "No projects yet" until this loads
     }
   }
 
@@ -96,9 +87,35 @@ function SettingsContent() {
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="animate-in flex flex-col gap-6">
+        <ClaudeTokenForm />
+        <LlmUsageCard />
+
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-muted">AWS connection polling</h3>
+          <Button variant="ghost" disabled={refreshing} onClick={refreshNow}>
+            {refreshing ? 'Refreshing…' : 'Refresh all'}
+          </Button>
+        </div>
+        {schedule && (
+          <p className="-mt-4 text-xs text-muted">
+            Auto-polls every {schedule.interval_minutes} min
+            {schedule.next_run_at &&
+              ` — next run at ${new Date(schedule.next_run_at).toLocaleTimeString(undefined, {
+                hour: '2-digit',
+                minute: '2-digit',
+              })}`}
+          </p>
+        )}
+        {refreshResult && (
+          <p className={`-mt-4 text-xs ${refreshResult.ok ? 'text-sev-low' : 'text-sev-critical'}`}>
+            {refreshResult.text}
+          </p>
+        )}
+
         <ProjectRegistry
           projects={projects}
           adoConnections={adoConnections}
+          cloudConnections={connections}
           onProjectCreated={(p) => setProjects((prev) => [...prev, p])}
           onProjectDeleted={(id) => setProjects((prev) => prev.filter((p) => p.id !== id))}
           onAdoCreated={(c) => setAdoConnections((prev) => [...prev, c])}
@@ -106,58 +123,15 @@ function SettingsContent() {
             setAdoConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
           }
           onAdoDeleted={(id) => setAdoConnections((prev) => prev.filter((c) => c.id !== id))}
-        />
-
-        <ClaudeTokenForm />
-        <LlmUsageCard />
-
-        <CloudConnectionForm
-          editing={editing}
-          projects={projects}
-          onCreated={(c) => setConnections((prev) => [...prev, c])}
-          onUpdated={(c) => {
+          onCloudCreated={(c) => setConnections((prev) => [...prev, c])}
+          onCloudUpdated={(c) =>
             setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
-            setEditing(null)
-          }}
-          onCancelEdit={() => setEditing(null)}
+          }
+          onCloudDeleted={(id) => setConnections((prev) => prev.filter((c) => c.id !== id))}
+          onCloudRefreshed={(c) =>
+            setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
+          }
         />
-
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-muted">AWS connections</h3>
-            <Button variant="ghost" disabled={refreshing} onClick={refreshNow}>
-              {refreshing ? 'Refreshing…' : 'Refresh all'}
-            </Button>
-          </div>
-          {schedule && (
-            <p className="text-xs text-muted">
-              Auto-polls every {schedule.interval_minutes} min
-              {schedule.next_run_at &&
-                ` — next run at ${new Date(schedule.next_run_at).toLocaleTimeString(undefined, {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}`}
-            </p>
-          )}
-          {refreshResult && (
-            <p className={refreshResult.ok ? 'text-xs text-sev-low' : 'text-xs text-sev-critical'}>
-              {refreshResult.text}
-            </p>
-          )}
-        </div>
-
-        {loading && <p className="text-sm text-muted">Loading…</p>}
-        {error && <p className="text-sm text-sev-critical">{error}</p>}
-        {!loading && !error && (
-          <CloudConnectionTable
-            rows={connections}
-            onDeleted={(id) => setConnections((prev) => prev.filter((c) => c.id !== id))}
-            onEdit={setEditing}
-            onRefreshed={(c) =>
-              setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
-            }
-          />
-        )}
       </div>
     </div>
   )

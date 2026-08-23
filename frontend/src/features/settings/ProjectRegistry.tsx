@@ -1,32 +1,44 @@
 import { useState } from 'react'
 import { api, errText } from '../../lib/api'
-import type { AdoConnection, Project, TestConnectionResult } from '../../lib/types'
+import type { AdoConnection, CloudConnection, Project, TestConnectionResult } from '../../lib/types'
 import { Button } from '../../components/ui/Button'
+import { CloudConnectionForm } from './CloudConnectionForm'
+import { CloudConnectionTable } from './CloudConnectionTable'
 
 const inputCls =
   'mt-1 w-full rounded-lg border border-hair bg-plane p-2 text-sm text-ink outline-none focus:border-accent'
 
 /**
- * Projects + their optional Azure DevOps ticket destination in one place — a project's ADO org/
- * PAT/work-item-type are provided (or left blank) right where the project itself is managed,
- * instead of a separate "Azure DevOps connections" section the user has to cross-reference by name.
+ * Everything about one project in one place: the project itself, its optional Azure DevOps
+ * ticket destination, and its AWS CloudWatch connections (one per env) — instead of three
+ * separate sections the user had to cross-reference against project names by hand.
  */
 export function ProjectRegistry({
   projects,
   adoConnections,
+  cloudConnections,
   onProjectCreated,
   onProjectDeleted,
   onAdoCreated,
   onAdoUpdated,
   onAdoDeleted,
+  onCloudCreated,
+  onCloudUpdated,
+  onCloudDeleted,
+  onCloudRefreshed,
 }: {
   projects: Project[]
   adoConnections: AdoConnection[]
+  cloudConnections: CloudConnection[]
   onProjectCreated: (p: Project) => void
   onProjectDeleted: (id: string) => void
   onAdoCreated: (c: AdoConnection) => void
   onAdoUpdated: (c: AdoConnection) => void
   onAdoDeleted: (id: string) => void
+  onCloudCreated: (c: CloudConnection) => void
+  onCloudUpdated: (c: CloudConnection) => void
+  onCloudDeleted: (id: string) => void
+  onCloudRefreshed: (c: CloudConnection) => void
 }) {
   const [name, setName] = useState('')
   const [org, setOrg] = useState('')
@@ -41,6 +53,11 @@ export function ProjectRegistry({
   // doesn't have one yet — either way the "Project" field locks to that project's name.
   const [lockedProject, setLockedProject] = useState<string | null>(null)
   const [editingAdo, setEditingAdo] = useState<AdoConnection | null>(null)
+
+  // Which project's card has a cloud-connection edit in progress (at most one at a time).
+  const [editingCloud, setEditingCloud] = useState<{ project: string; connection: CloudConnection } | null>(
+    null
+  )
 
   const resetForm = () => {
     setName('')
@@ -193,7 +210,8 @@ export function ProjectRegistry({
 
         <p className="text-xs text-muted">
           Azure DevOps ticket destination (optional) — fill these in to file tickets for this
-          project's incidents, or leave blank and add it later.
+          project's incidents, or leave blank and add it later. AWS connections are added per
+          project below, once it exists.
         </p>
         <div className="flex gap-3">
           <label className="flex-1 text-sm text-ink-2">
@@ -252,64 +270,83 @@ export function ProjectRegistry({
       {projects.length === 0 ? (
         <p className="text-sm text-muted">No projects yet.</p>
       ) : (
-        <table className="w-full text-sm">
-          <thead className="text-left text-muted">
-            <tr>
-              <th className="py-2">Project</th>
-              <th>Azure DevOps</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {projects.map((p) => {
-              const ado = adoConnections.find((c) => c.project === p.name)
-              const result = ado ? testResults[ado.id] : undefined
-              return (
-                <tr key={p.id} className="border-t border-hair">
-                  <td className="py-2 text-ink">{p.name}</td>
-                  <td className="text-ink-2">
+        <div className="flex flex-col gap-4">
+          {projects.map((p) => {
+            const ado = adoConnections.find((c) => c.project === p.name)
+            const adoResult = ado ? testResults[ado.id] : undefined
+            const projectClouds = cloudConnections.filter((c) => c.project === p.name)
+            return (
+              <div key={p.id} className="flex flex-col gap-3 rounded-xl border border-hair bg-plane p-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-ink">{p.name}</span>
+                  <Button variant="ghost" disabled={busy === p.id} onClick={() => removeProject(p.id)}>
+                    Delete project
+                  </Button>
+                </div>
+
+                <div className="flex items-center justify-between text-sm">
+                  <div className="text-ink-2">
+                    Azure DevOps:{' '}
                     {ado ? (
                       <>
                         {ado.org} / {ado.ado_project}
-                        {result && (
-                          <span className={result.ok ? 'ml-2 text-sev-low' : 'ml-2 text-sev-critical'}>
-                            {result.ok ? 'OK' : result.error}
+                        {adoResult && (
+                          <span className={adoResult.ok ? 'ml-2 text-sev-low' : 'ml-2 text-sev-critical'}>
+                            {adoResult.ok ? 'OK' : adoResult.error}
                           </span>
                         )}
                       </>
                     ) : (
                       <span className="text-muted">not configured</span>
                     )}
-                  </td>
-                  <td className="py-2">
-                    <div className="flex items-center gap-2">
-                      {ado ? (
-                        <>
-                          <Button variant="ghost" disabled={busy === ado.id} onClick={() => testAdo(ado)}>
-                            Test
-                          </Button>
-                          <Button variant="ghost" disabled={busy === ado.id} onClick={() => startEditAdo(ado)}>
-                            Edit ADO
-                          </Button>
-                          <Button variant="ghost" disabled={busy === ado.id} onClick={() => removeAdo(ado)}>
-                            Remove ADO
-                          </Button>
-                        </>
-                      ) : (
-                        <Button variant="ghost" onClick={() => startAddAdo(p.name)}>
-                          + Add ADO
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {ado ? (
+                      <>
+                        <Button variant="ghost" disabled={busy === ado.id} onClick={() => testAdo(ado)}>
+                          Test
                         </Button>
-                      )}
-                      <Button variant="ghost" disabled={busy === p.id} onClick={() => removeProject(p.id)}>
-                        Delete
+                        <Button variant="ghost" disabled={busy === ado.id} onClick={() => startEditAdo(ado)}>
+                          Edit ADO
+                        </Button>
+                        <Button variant="ghost" disabled={busy === ado.id} onClick={() => removeAdo(ado)}>
+                          Remove ADO
+                        </Button>
+                      </>
+                    ) : (
+                      <Button variant="ghost" onClick={() => startAddAdo(p.name)}>
+                        + Add ADO
                       </Button>
-                    </div>
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-        </table>
+                    )}
+                  </div>
+                </div>
+
+                <div className="flex flex-col gap-2 border-t border-hair pt-3">
+                  <h4 className="text-xs font-semibold uppercase tracking-wide text-muted">
+                    AWS connections
+                  </h4>
+                  <CloudConnectionTable
+                    rows={projectClouds}
+                    onDeleted={onCloudDeleted}
+                    onEdit={(connection) => setEditingCloud({ project: p.name, connection })}
+                    onRefreshed={onCloudRefreshed}
+                  />
+                  <CloudConnectionForm
+                    projects={projects}
+                    lockedProject={p.name}
+                    editing={editingCloud?.project === p.name ? editingCloud.connection : null}
+                    onCreated={onCloudCreated}
+                    onUpdated={(c) => {
+                      onCloudUpdated(c)
+                      setEditingCloud(null)
+                    }}
+                    onCancelEdit={() => setEditingCloud(null)}
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )
