@@ -92,9 +92,20 @@ async def _call_claude_cli(
         raise RuntimeError(f"claude CLI failed: {detail}")
 
     usage = data.get("usage") or {}
+    # "input_tokens" alone massively undercounts: --safe-mode still caches most of the prompt
+    # (system prompt / project context) across calls in the same OAuth session, and that shows up
+    # as cache_read_input_tokens / cache_creation_input_tokens instead — both still real spend
+    # against the account, just billed at a different (cheaper) rate than fresh input tokens.
+    input_tokens = (
+        usage.get("input_tokens", 0)
+        + usage.get("cache_read_input_tokens", 0)
+        + usage.get("cache_creation_input_tokens", 0)
+        if "input_tokens" in usage
+        else None
+    )
     return _CliResult(
         text=data["result"],
-        input_tokens=usage.get("input_tokens"),
+        input_tokens=input_tokens,
         output_tokens=usage.get("output_tokens"),
     )
 

@@ -152,6 +152,34 @@ async def test_call_claude_cli_parses_usage_from_the_subprocess_json(monkeypatch
     assert result.output_tokens == 80
 
 
+async def test_call_claude_cli_includes_cache_tokens_in_input_tokens(monkeypatch):
+    """--safe-mode still caches most of the prompt across calls in the same OAuth session — that
+    shows up as cache_read/cache_creation, not input_tokens, but it's still real spend."""
+    payload = (
+        '{"result": "hello", "is_error": false, "usage": {'
+        '"input_tokens": 2, "cache_read_input_tokens": 4461, '
+        '"cache_creation_input_tokens": 100, "output_tokens": 13}}'
+    )
+
+    class FakeProcess:
+        returncode = 0
+
+        async def communicate(self):
+            return payload.encode(), b""
+
+    async def fake_create_subprocess_exec(*_args, **_kwargs):
+        return FakeProcess()
+
+    monkeypatch.setattr(claude_cli.asyncio, "create_subprocess_exec", fake_create_subprocess_exec)
+
+    result = await claude_cli._call_claude_cli(
+        prompt="p", system_prompt=None, model="sonnet", token="t"
+    )
+
+    assert result.input_tokens == 2 + 4461 + 100
+    assert result.output_tokens == 13
+
+
 async def test_call_claude_cli_tolerates_a_missing_usage_field(monkeypatch):
     payload = '{"result": "hello", "is_error": false}'
 
