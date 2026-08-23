@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
+from app.domain.projects.errors import UnknownProjectError
 from app.infrastructure.config import Settings, get_settings
 from app.interface.http.deps import get_manage_cloud_connections, get_poll_alarms_job, require_admin
 from app.interface.http.dto import mappers
@@ -47,11 +48,14 @@ async def create_connection(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="access_key_id and secret_access_key are required when auth_type is 'access_key'",
         )
-    connection = await manager.create(
-        project=body.project, env=body.env, region=body.region, auth_type=body.auth_type,
-        sso_profile_name=body.sso_profile_name, access_key_id=body.access_key_id,
-        secret_access_key=body.secret_access_key,
-    )
+    try:
+        connection = await manager.create(
+            project=body.project, env=body.env, region=body.region, auth_type=body.auth_type,
+            sso_profile_name=body.sso_profile_name, access_key_id=body.access_key_id,
+            secret_access_key=body.secret_access_key,
+        )
+    except UnknownProjectError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return mappers.cloud_connection_out(connection)
 
 
@@ -90,6 +94,8 @@ async def update_connection(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except UnknownProjectError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return mappers.cloud_connection_out(connection)
 
 

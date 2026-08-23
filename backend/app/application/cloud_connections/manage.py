@@ -9,8 +9,11 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+from sqlalchemy.exc import IntegrityError
+
 from app.domain.cloud_connections.entities import CloudConnection
 from app.domain.cloud_connections.ports import AlarmFetcher, CloudConnectionRepository
+from app.domain.projects.errors import UnknownProjectError
 from app.domain.shared import UnitOfWork
 from app.infrastructure.security.encryptor import Encryptor
 
@@ -33,21 +36,25 @@ class ManageCloudConnections:
         access_key_id: str | None = None,
         secret_access_key: str | None = None,
     ) -> CloudConnection:
-        connection = await self.connections.add(
-            CloudConnection(
-                project=project,
-                env=env,
-                region=region,
-                auth_type=auth_type,
-                sso_profile_name=sso_profile_name,
-                encrypted_access_key_id=(
-                    self.encryptor.encrypt(access_key_id) if access_key_id else None
-                ),
-                encrypted_secret_access_key=(
-                    self.encryptor.encrypt(secret_access_key) if secret_access_key else None
-                ),
+        try:
+            connection = await self.connections.add(
+                CloudConnection(
+                    project=project,
+                    env=env,
+                    region=region,
+                    auth_type=auth_type,
+                    sso_profile_name=sso_profile_name,
+                    encrypted_access_key_id=(
+                        self.encryptor.encrypt(access_key_id) if access_key_id else None
+                    ),
+                    encrypted_secret_access_key=(
+                        self.encryptor.encrypt(secret_access_key) if secret_access_key else None
+                    ),
+                )
             )
-        )
+        except IntegrityError as exc:
+            await self.uow.rollback()
+            raise UnknownProjectError(project) from exc
         await self.uow.commit()
         return connection
 
@@ -94,7 +101,11 @@ class ManageCloudConnections:
             encrypted_access_key_id=encrypted_access_key_id,
             encrypted_secret_access_key=encrypted_secret_access_key,
         )
-        result = await self.connections.update(updated)
+        try:
+            result = await self.connections.update(updated)
+        except IntegrityError as exc:
+            await self.uow.rollback()
+            raise UnknownProjectError(project) from exc
         await self.uow.commit()
         return result
 

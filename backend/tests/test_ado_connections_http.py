@@ -5,13 +5,14 @@ and require_admin (covered separately by test_admin_gate_http.py).
 """
 
 import os
+import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.infrastructure.db.orm import AdoConnectionRow, Base
+from app.infrastructure.db.orm import AdoConnectionRow, Base, CloudConnectionRow, ProjectRow
 from app.infrastructure.security.encryptor import Encryptor
 from app.interface.http.deps import get_encryptor, get_session, require_admin
 from app.main import app
@@ -38,6 +39,10 @@ async def client():
     maker = async_sessionmaker(engine, expire_on_commit=False)
     async with maker() as s:
         await s.execute(delete(AdoConnectionRow))
+        await s.execute(delete(CloudConnectionRow))
+        await s.execute(delete(ProjectRow))
+        await s.commit()
+        s.add_all([ProjectRow(id=uuid.uuid4(), name="EVP"), ProjectRow(id=uuid.uuid4(), name="rxdevs")])
         await s.commit()
 
     async def _override_session():
@@ -96,6 +101,14 @@ async def test_update_changes_ado_project_and_keeps_pat_when_omitted(client):
     )
     assert r.status_code == 200, r.text
     assert r.json()["ado_project"] == "new-board"
+
+
+async def test_create_unknown_project_is_422(client):
+    r = await client.post(
+        "/api/ado-connections",
+        json={"project": "NOPE", "org": "my-org", "ado_project": "EVP-Board", "pat": "secret"},
+    )
+    assert r.status_code == 422
 
 
 async def test_update_404_for_unknown_connection(client):

@@ -13,8 +13,11 @@ _KEY = "zH8yV2m3sVW6tG5v9pQwQflR4z1sT8y3lU9wA0b3iF4="
 class FakeRepo:
     def __init__(self):
         self.rows = {}
+        self.raise_on_add = None
 
     async def add(self, connection):
+        if self.raise_on_add:
+            raise self.raise_on_add
         connection.id = "generated-id"
         self.rows[connection.id] = connection
         return connection
@@ -40,14 +43,20 @@ class FakeFetcher:
 
 
 class FakeUnitOfWork:
+    def __init__(self):
+        self.rolled_back = False
+
     async def commit(self):
         pass
 
+    async def rollback(self):
+        self.rolled_back = True
 
-def _manager(fetcher=None):
+
+def _manager(fetcher=None, repo=None, uow=None):
     return ManageCloudConnections(
-        connections=FakeRepo(), encryptor=Encryptor(_KEY),
-        fetcher=fetcher or FakeFetcher(), uow=FakeUnitOfWork(),
+        connections=repo or FakeRepo(), encryptor=Encryptor(_KEY),
+        fetcher=fetcher or FakeFetcher(), uow=uow or FakeUnitOfWork(),
     )
 
 
@@ -89,3 +98,20 @@ async def test_test_connection_reports_failure():
     ok, error = await manager.test(connection.id)
     assert ok is False
     assert error == "access denied"
+
+
+async def test_create_unknown_project_raises_unknown_project_error():
+    from sqlalchemy.exc import IntegrityError
+
+    from app.domain.projects.errors import UnknownProjectError
+
+    repo = FakeRepo()
+    repo.raise_on_add = IntegrityError("stmt", {}, Exception("fk violation"))
+    uow = FakeUnitOfWork()
+    manager = _manager(repo=repo, uow=uow)
+    with pytest.raises(UnknownProjectError):
+        await manager.create(
+            project="NOPE", env="prod", region="us-east-1", auth_type="sso",
+            sso_profile_name="p",
+        )
+    assert uow.rolled_back is True

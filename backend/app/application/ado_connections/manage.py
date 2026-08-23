@@ -8,8 +8,12 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 
+import asyncpg
+from sqlalchemy.exc import IntegrityError
+
 from app.domain.ado_connections.entities import AdoConnection
 from app.domain.ado_connections.ports import AdoConnectionRepository
+from app.domain.projects.errors import UnknownProjectError
 from app.domain.shared import UnitOfWork
 from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.tickets.ado_client import AdoTicketClient
@@ -24,15 +28,23 @@ class ManageAdoConnections:
     async def create(
         self, *, project: str, org: str, ado_project: str, pat: str, work_item_type: str = "Bug"
     ) -> AdoConnection:
-        connection = await self.connections.add(
-            AdoConnection(
-                project=project,
-                org=org,
-                ado_project=ado_project,
-                encrypted_pat=self.encryptor.encrypt(pat),
-                work_item_type=work_item_type,
+        try:
+            connection = await self.connections.add(
+                AdoConnection(
+                    project=project,
+                    org=org,
+                    ado_project=ado_project,
+                    encrypted_pat=self.encryptor.encrypt(pat),
+                    work_item_type=work_item_type,
+                )
             )
-        )
+        except IntegrityError as exc:
+            await self.uow.rollback()
+            # SQLAlchemy wraps the raw asyncpg error; the actual exception type asyncpg raised
+            # is one level down, as __cause__ of that wrapper.
+            if isinstance(exc.orig.__cause__, asyncpg.exceptions.ForeignKeyViolationError):
+                raise UnknownProjectError(project) from exc
+            raise
         await self.uow.commit()
         return connection
 
@@ -65,7 +77,15 @@ class ManageAdoConnections:
             encrypted_pat=encrypted_pat,
             work_item_type=work_item_type,
         )
-        result = await self.connections.update(updated)
+        try:
+            result = await self.connections.update(updated)
+        except IntegrityError as exc:
+            await self.uow.rollback()
+            # SQLAlchemy wraps the raw asyncpg error; the actual exception type asyncpg raised
+            # is one level down, as __cause__ of that wrapper.
+            if isinstance(exc.orig.__cause__, asyncpg.exceptions.ForeignKeyViolationError):
+                raise UnknownProjectError(project) from exc
+            raise
         await self.uow.commit()
         return result
 

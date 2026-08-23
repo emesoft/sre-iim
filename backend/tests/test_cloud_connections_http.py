@@ -7,6 +7,7 @@ fakes at all.
 """
 
 import os
+import uuid
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,11 +16,13 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domain.cloud_connections.entities import AlarmState
 from app.infrastructure.db.orm import (
+    AdoConnectionRow,
     AnalysisCacheRow,
     AnalysisRow,
     Base,
     CloudConnectionRow,
     IncidentRow,
+    ProjectRow,
     TrackedAlarmRow,
 )
 from app.infrastructure.security.encryptor import Encryptor
@@ -64,6 +67,10 @@ async def client():
     async with maker() as s:
         await s.execute(delete(TrackedAlarmRow))
         await s.execute(delete(CloudConnectionRow))
+        await s.execute(delete(AdoConnectionRow))
+        await s.execute(delete(ProjectRow))
+        await s.commit()
+        s.add_all([ProjectRow(id=uuid.uuid4(), name="GCM"), ProjectRow(id=uuid.uuid4(), name="EVP")])
         await s.commit()
 
     async def _override_session():

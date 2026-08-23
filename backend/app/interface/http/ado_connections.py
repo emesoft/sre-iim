@@ -8,6 +8,7 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.ado_connections.manage import ManageAdoConnections
+from app.domain.projects.errors import UnknownProjectError
 from app.interface.http.deps import get_manage_ado_connections, require_admin
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import AdoConnectionCreateRequest
@@ -28,10 +29,13 @@ async def create_connection(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="pat is required when creating a connection",
         )
-    connection = await manager.create(
-        project=body.project, org=body.org, ado_project=body.ado_project,
-        pat=body.pat, work_item_type=body.work_item_type,
-    )
+    try:
+        connection = await manager.create(
+            project=body.project, org=body.org, ado_project=body.ado_project,
+            pat=body.pat, work_item_type=body.work_item_type,
+        )
+    except UnknownProjectError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return mappers.ado_connection_out(connection)
 
 
@@ -59,6 +63,8 @@ async def update_connection(
         )
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except UnknownProjectError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     return mappers.ado_connection_out(connection)
 
 
