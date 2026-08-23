@@ -31,6 +31,13 @@ def _raise_for_status_with_ado_message(resp: httpx.Response) -> None:
     raise AdoApiError(message or f"Azure DevOps returned HTTP {resp.status_code}: {resp.text[:500]}")
 
 
+def _extract_work_item_id(ticket_url: str) -> str | None:
+    """Pulls the numeric work item id off the tail of a `.../_workitems/edit/{id}` html link
+    (what `create_ticket` stores as `ticket_url`) — `None` if the URL doesn't end in one."""
+    tail = ticket_url.rstrip("/").rsplit("/", 1)[-1]
+    return tail if tail.isdigit() else None
+
+
 class AdoTicketClient:
     """TicketClient backed by Azure DevOps work items, scoped to one org/project/PAT."""
 
@@ -40,7 +47,9 @@ class AdoTicketClient:
         self._pat = pat
         self._work_item_type = work_item_type
 
-    async def create_ticket(self, title: str, description: str) -> str:
+    async def create_ticket(
+        self, title: str, description: str, *, related_url: str | None = None
+    ) -> str:
         url = (
             f"https://dev.azure.com/{self._org}/{self._project}/_apis/wit/workitems/"
             f"${self._work_item_type}?api-version=7.1"
@@ -49,6 +58,18 @@ class AdoTicketClient:
             {"op": "add", "path": "/fields/System.Title", "value": title},
             {"op": "add", "path": "/fields/System.Description", "value": description},
         ]
+        related_id = _extract_work_item_id(related_url) if related_url else None
+        if related_id is not None:
+            patch.append(
+                {
+                    "op": "add",
+                    "path": "/relations/-",
+                    "value": {
+                        "rel": "System.LinkTypes.Related",
+                        "url": f"https://dev.azure.com/{self._org}/_apis/wit/workItems/{related_id}",
+                    },
+                }
+            )
         async with httpx.AsyncClient(auth=("", self._pat), timeout=30.0) as client:
             resp = await client.post(
                 url,

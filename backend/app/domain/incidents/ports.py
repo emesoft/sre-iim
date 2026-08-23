@@ -141,7 +141,12 @@ class TicketClient(Protocol):
     """Creates a tracking ticket for an incident in an external tracker (e.g. Azure DevOps).
     Returns the created ticket's URL."""
 
-    async def create_ticket(self, title: str, description: str) -> str: ...
+    async def create_ticket(
+        self, title: str, description: str, *, related_url: str | None = None
+    ) -> str:
+        """`related_url` links the new ticket back to another one (e.g. a recurrence of a known
+        issue) when the tracker supports it — implementations that don't may ignore it."""
+        ...
 
 
 class ProgressReporter(Protocol):

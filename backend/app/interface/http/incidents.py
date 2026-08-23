@@ -304,6 +304,11 @@ async def create_incident_ticket(
     incident = await repo.get(incident_id)
     if incident is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="incident not found")
+    if incident.ticket_url:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"This incident already has a ticket: {incident.ticket_url}",
+        )
     analysis = await repo.latest_analysis(incident_id)
     if analysis is None:
         raise HTTPException(
@@ -321,6 +326,15 @@ async def create_incident_ticket(
         )
     ticket_client = ticket_client_factory(connection)
 
+    # A recurrence of a known issue (see resolve.py's RAG feedback loop) may already have its own
+    # ticket from the earlier occurrence — link the new one to it as "Related" instead of either
+    # silently duplicating work or blocking a genuinely new occurrence from getting its own ticket.
+    related_ticket_url: str | None = None
+    if analysis.known_issue_incident_id is not None:
+        known_incident = await repo.get(analysis.known_issue_incident_id)
+        if known_incident is not None and known_incident.ticket_url:
+            related_ticket_url = known_incident.ticket_url
+
     # Azure DevOps rejects System.Title over 255 chars (TF401324) — the AI summary alone can
     # exceed that, so truncate the whole title defensively rather than just the summary part.
     title = f"[{analysis.severity.upper()}] {incident.service}: {analysis.summary}"
@@ -330,10 +344,18 @@ async def create_incident_ticket(
         f"Summary: {analysis.summary}\n\n"
         f"Root cause: {analysis.root_cause}\n\n"
         f"Recommended action: {analysis.recommended_action}\n\n"
-        f"IIM incident: {incident_id}"
+        + (
+            f"Related: this looks like a recurrence of a previously ticketed incident — "
+            f"{related_ticket_url}\n\n"
+            if related_ticket_url
+            else ""
+        )
+        + f"IIM incident: {incident_id}"
     )
     try:
-        ticket_url = await ticket_client.create_ticket(title, description)
+        ticket_url = await ticket_client.create_ticket(
+            title, description, related_url=related_ticket_url
+        )
     except AdoApiError as exc:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
     await repo.set_ticket_url(incident_id, ticket_url)

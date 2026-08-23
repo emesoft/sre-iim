@@ -89,6 +89,27 @@ async def test_create_ticket_raises_ado_api_error_with_the_response_message(monk
         await client.create_ticket("title", "description")
 
 
+async def test_create_ticket_adds_a_related_link_when_given_a_related_url(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "app.infrastructure.tickets.ado_client.httpx.AsyncClient",
+        lambda **kw: _FakeAsyncClient(calls),
+    )
+
+    client = AdoTicketClient(org="my-org", project="my-project", pat="secret-pat")
+    await client.create_ticket(
+        "title",
+        "description",
+        related_url="https://dev.azure.com/my-org/my-project/_workitems/edit/42",
+    )
+
+    patch = calls[0][2]
+    relation_ops = [op for op in patch if op["path"] == "/relations/-"]
+    assert len(relation_ops) == 1
+    assert relation_ops[0]["value"]["rel"] == "System.LinkTypes.Related"
+    assert relation_ops[0]["value"]["url"] == "https://dev.azure.com/my-org/_apis/wit/workItems/42"
+
+
 async def test_verify_succeeds_on_a_good_response(monkeypatch):
     calls = []
     monkeypatch.setattr(

@@ -68,7 +68,7 @@ class _FakeEmbedder:
 
 
 class _FakeTicketClient:
-    async def create_ticket(self, title, description):
+    async def create_ticket(self, title, description, *, related_url=None):
         return "https://dev.azure.com/fake-org/fake-project/_workitems/edit/123"
 
 
