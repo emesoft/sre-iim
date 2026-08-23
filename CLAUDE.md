@@ -18,7 +18,9 @@ the original Step-0 prototype and is superseded by `backend/app/infrastructure/g
 - `GET /api/incidents/{id}/stream` — **SSE**, live analysis progress (implemented, not just planned)
 - `POST /api/incidents/{id}/resolve` — mark resolved, feeds back into RAG as a known-issue case
 - `POST /api/incidents/{id}/ticket` — creates a **real** Azure DevOps work item via PAT (not a stub)
-- `POST /api/incidents/{id}/logs/search` — pull more logs (CloudWatch or demo fetcher), re-analyze
+- `GET /api/incidents/{id}/chat`, `POST /api/incidents/{id}/chat` — chat about an incident; Claude
+  can autonomously call a `fetch_logs` tool via MCP tool-calling (`claude_cli` provider only — 501
+  otherwise)
 - `POST /api/documents`, `GET /api/documents` — knowledge-base ingest (chunk + embed) / list
 - `GET /api/reports/daily` — Slack-markdown daily digest
 - `GET /healthz`
