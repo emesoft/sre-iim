@@ -95,6 +95,10 @@ export interface DocumentSummary {
   updated_at: string
 }
 
+export interface DocumentDetail extends DocumentSummary {
+  content: string
+}
+
 export interface DocumentCreated {
   document_id: string
   chunks: number

@@ -55,6 +55,19 @@ class SqlAlchemyDocumentRepository:
         rows = (await self._s.execute(stmt)).all()
         return [(document_to_domain(doc), count) for doc, count in rows]
 
+    async def get_with_content(self, document_id: uuid.UUID) -> tuple[Document, list[str]] | None:
+        row = await self._s.get(DocumentRow, document_id)
+        if row is None:
+            return None
+        chunks = (
+            await self._s.execute(
+                select(DocChunkRow.content)
+                .where(DocChunkRow.document_id == document_id)
+                .order_by(DocChunkRow.chunk_index)
+            )
+        ).scalars().all()
+        return document_to_domain(row), list(chunks)
+
     async def evidence_refs(self, chunk_ids: list[uuid.UUID]) -> list[EvidenceRef]:
         """Resolve chunk ids to their (source_type, document title) for an analysis response."""
         if not chunk_ids:

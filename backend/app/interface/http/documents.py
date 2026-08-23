@@ -7,6 +7,8 @@ has no public endpoint here. `reindex` is out of scope for this slice (needs the
 
 from __future__ import annotations
 
+import uuid
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.documents.ingest import EmptyDocumentError, IngestDocument
@@ -15,7 +17,7 @@ from app.domain.documents.ports import DocumentRepository
 from app.interface.http.deps import get_document_repository, get_ingest_document
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import DocumentIngestRequest
-from app.interface.http.dto.response import DocumentCreatedResponse, DocumentSummary
+from app.interface.http.dto.response import DocumentCreatedResponse, DocumentDetail, DocumentSummary
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -53,3 +55,16 @@ async def list_documents(
     """List indexed documents with their chunk counts (newest first)."""
     rows = await repo.list()
     return [mappers.document_summary(document, count) for document, count in rows]
+
+
+@router.get("/{document_id}", response_model=DocumentDetail)
+async def get_document(
+    document_id: uuid.UUID,
+    repo: DocumentRepository = Depends(get_document_repository),
+) -> DocumentDetail:
+    """One document's full indexed text, chunks rejoined in order."""
+    result = await repo.get_with_content(document_id)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
+    document, chunks = result
+    return mappers.document_detail(document, chunks)

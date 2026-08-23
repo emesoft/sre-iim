@@ -8,7 +8,11 @@ from app.interface.http.dto.response.cloud_connection import (
     PollScheduleOut,
     TestConnectionResult,
 )
-from app.interface.http.dto.response.document import DocumentCreatedResponse, DocumentSummary
+from app.interface.http.dto.response.document import (
+    DocumentCreatedResponse,
+    DocumentDetail,
+    DocumentSummary,
+)
 from app.interface.http.dto.response.health import HealthResponse
 from app.interface.http.dto.response.incident import (
     AnalysisOut,
@@ -31,6 +35,7 @@ __all__ = [
     "ChatMessageOut",
     "DocumentCreatedResponse",
     "DocumentSummary",
+    "DocumentDetail",
     "HealthResponse",
     "DailyReportOut",
     "ReportIncidentOut",

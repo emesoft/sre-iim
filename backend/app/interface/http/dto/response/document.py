@@ -26,3 +26,9 @@ class DocumentSummary(BaseModel):
     chunk_count: int
     created_at: datetime
     updated_at: datetime
+
+
+class DocumentDetail(DocumentSummary):
+    """`GET /api/documents/{id}`: the summary fields plus the full indexed text."""
+
+    content: str

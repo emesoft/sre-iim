@@ -1,5 +1,7 @@
+import { useState } from 'react'
 import type { DashboardData } from '../lib/useDashboard'
 import { DocumentList } from '../features/documents/DocumentList'
+import { DocumentDetailModal } from '../features/documents/DocumentDetailModal'
 
 export function KnowledgeBase({
   data,
@@ -12,6 +14,8 @@ export function KnowledgeBase({
   onRetry: () => void
   onNew: () => void
 }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="animate-in">
@@ -23,8 +27,10 @@ export function KnowledgeBase({
           query={query}
           onRetry={onRetry}
           onNew={onNew}
+          onSelect={setSelectedId}
         />
       </div>
+      <DocumentDetailModal documentId={selectedId} onClose={() => setSelectedId(null)} />
     </div>
   )
 }
