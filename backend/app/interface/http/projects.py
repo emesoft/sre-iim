@@ -27,7 +27,7 @@ async def create_project(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="name must not be blank"
         )
     try:
-        project = await manager.create(body.name)
+        project = await manager.create(body.name.strip())
     except ProjectNameTakenError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return mappers.project_out(project)
