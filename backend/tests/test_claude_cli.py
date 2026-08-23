@@ -4,6 +4,8 @@ Monkeypatches the module-level `_call_claude_cli` and `_get_token` helpers so th
 shell out to the real `claude` binary or hit Postgres.
 """
 
+import json
+import os
 import uuid
 
 import pytest
@@ -218,9 +220,16 @@ async def test_verify_reports_when_no_token_is_configured(monkeypatch):
 
 async def test_chat_sends_session_id_for_a_new_session(monkeypatch):
     calls = []
+    mcp_configs_at_call_time = []
 
     async def fake_run_cli(cmd, token):
         calls.append(cmd)
+        # The temp MCP config file is cleaned up in _run_turn's `finally`, after this returns —
+        # so read it now, while it still exists, rather than after chat.send() comes back.
+        mcp_config_path = cmd[cmd.index("--mcp-config") + 1]
+        mode = oct(os.stat(mcp_config_path).st_mode)[-3:]
+        with open(mcp_config_path) as f:
+            mcp_configs_at_call_time.append((mcp_config_path, mode, json.load(f)))
         return claude_cli._CliResult(text="answer", input_tokens=50, output_tokens=20)
 
     async def fake_get_token(settings):
@@ -237,13 +246,31 @@ async def test_chat_sends_session_id_for_a_new_session(monkeypatch):
     )
 
     assert result.text == "answer"
-    assert result.claude_session_id == session_id
+    # A brand-new session always gets a freshly-minted id, never the caller's — reusing a
+    # possibly-already-registered id on retry could permanently wedge the chat (see claude_cli.py).
+    assert result.claude_session_id != session_id
     assert len(calls) == 1
     assert "--session-id" in calls[0]
+    assert str(result.claude_session_id) in calls[0]
+    assert str(session_id) not in calls[0]
     assert "--resume" not in calls[0]
     assert "--mcp-config" in calls[0]
     assert "--strict-mcp-config" in calls[0]
     assert "mcp__iim-tools__fetch_logs" in calls[0]
+
+    # The MCP config is written to a restricted-permission file, not inlined as an argv string
+    # (argv is visible to other processes via /proc/<pid>/cmdline or `ps aux`), and is cleaned up
+    # after the call.
+    mcp_config_path, mcp_config_mode, mcp_config = mcp_configs_at_call_time[0]
+    assert mcp_config_path in calls[0]
+    assert mcp_config_mode == "600"
+    assert not os.path.exists(mcp_config_path)  # cleaned up by _run_turn's `finally`
+    mcp_env = mcp_config["mcpServers"]["iim-tools"]["env"]
+    assert mcp_env["IIM_INCIDENT_SERVICE"] == "GCM"
+    # Secrets from the parent process env must never reach the MCP tool subprocess.
+    assert "DATABASE_URL" not in mcp_env
+    assert "SECRET_ENCRYPTION_KEY" not in mcp_env
+    assert "ANTHROPIC_API_KEY" not in mcp_env
 
 
 async def test_chat_resumes_an_existing_session(monkeypatch):

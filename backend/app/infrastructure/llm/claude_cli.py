@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import tempfile
 import uuid
 from dataclasses import dataclass
 
@@ -38,6 +39,23 @@ from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.llm.parsing import AnalysisError, parse_analysis
 from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.security.keys import CLAUDE_CLI_TOKEN_KEY
+
+
+# What the fetch_logs MCP subprocess actually needs (config.py's DEMO_LOGS/AWS_REGION, plus the
+# AWS SDK's own env vars for the default credential chain and locating ~/.aws/config) — deliberately
+# NOT the full parent environment (see _run_turn). PROJECT_<SERVICE>_* vars are added per-call since
+# their names depend on the incident's service.
+_MCP_TOOL_ENV_ALLOWLIST = {
+    "PATH",
+    "HOME",
+    "DEMO_LOGS",
+    "AWS_REGION",
+    "AWS_DEFAULT_REGION",
+    "AWS_PROFILE",
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+}
 
 
 async def _get_token(settings: Settings) -> str:
@@ -205,19 +223,27 @@ class ClaudeCliChat:
         token = await _get_token(self._settings)
         system_prompt = _chat_system_prompt(context)
         try:
+            if is_new_session:
+                # Always mint a fresh id for a "new session" attempt, ignoring the caller's id: if
+                # a prior failed attempt got far enough to register this session id with Claude
+                # Code's local session storage before erroring, a retry reusing the SAME id could
+                # be rejected as already-registered, permanently wedging this incident's chat.
+                session_id = uuid.uuid4()
+            else:
+                session_id = claude_session_id
             result = await self._run_turn(
                 service=service,
                 message=message,
                 system_prompt=system_prompt,
                 token=token,
-                session_id=claude_session_id,
+                session_id=session_id,
                 resume=not is_new_session,
             )
             return ChatTurnResult(
                 text=result.text,
                 input_tokens=result.input_tokens,
                 output_tokens=result.output_tokens,
-                claude_session_id=claude_session_id,
+                claude_session_id=session_id,
             )
         except RuntimeError:
             if is_new_session:
@@ -250,13 +276,18 @@ class ClaudeCliChat:
         session_id: uuid.UUID,
         resume: bool,
     ) -> _CliResult:
-        # The MCP server subprocess is spawned BY `claude`, not by us — it needs the same
-        # PROJECT_<SERVICE>_*/DEMO_LOGS/AWS_* config this process has, not just the one extra
-        # variable, so build_log_fetcher() works inside it. Merging the full environment here is
-        # correct regardless of whether `claude` additively merges or replaces inherited env for
-        # its MCP children.
-        mcp_env = {**os.environ, "IIM_INCIDENT_SERVICE": service}
-        mcp_config = json.dumps(
+        # The MCP server subprocess is spawned BY `claude`, not by us. It only fetches logs
+        # (mcp_log_tool.py / build_log_fetcher / CloudWatchLogFetcher), so it gets an explicit
+        # allowlist of what that needs — not the full parent environment, which carries
+        # DATABASE_URL, SECRET_ENCRYPTION_KEY, ADMIN_JWT_SECRET, AWS creds, etc. that this
+        # subprocess has no business seeing.
+        mcp_env = {
+            key: value
+            for key, value in os.environ.items()
+            if key in _MCP_TOOL_ENV_ALLOWLIST or key.startswith(f"PROJECT_{service.upper()}_")
+        }
+        mcp_env["IIM_INCIDENT_SERVICE"] = service
+        mcp_config_json = json.dumps(
             {
                 "mcpServers": {
                     "iim-tools": {
@@ -267,14 +298,26 @@ class ClaudeCliChat:
                 }
             }
         )
-        cmd = [
-            "claude", "-p", message,
-            "--output-format", "json",
-            "--mcp-config", mcp_config,
-            "--strict-mcp-config",
-            "--allowedTools", "mcp__iim-tools__fetch_logs",
-            "--safe-mode", "--model", self._settings.claude_cli_model,
-            "--append-system-prompt", system_prompt,
-            "--resume" if resume else "--session-id", str(session_id),
-        ]
-        return await _run_cli(cmd, token)
+        # Written to a file rather than passed inline: an inline --mcp-config value (which embeds
+        # this env dict) would be visible to any other process on the host via /proc/<pid>/cmdline
+        # or `ps aux` — a credential leak even with the trimmed allowlist above.
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".json", delete=False, prefix="iim-mcp-config-"
+        ) as f:
+            mcp_config_path = f.name
+            f.write(mcp_config_json)
+        os.chmod(mcp_config_path, 0o600)
+        try:
+            cmd = [
+                "claude", "-p", message,
+                "--output-format", "json",
+                "--mcp-config", mcp_config_path,
+                "--strict-mcp-config",
+                "--allowedTools", "mcp__iim-tools__fetch_logs",
+                "--safe-mode", "--model", self._settings.claude_cli_model,
+                "--append-system-prompt", system_prompt,
+                "--resume" if resume else "--session-id", str(session_id),
+            ]
+            return await _run_cli(cmd, token)
+        finally:
+            os.unlink(mcp_config_path)
