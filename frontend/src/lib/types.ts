@@ -174,6 +174,16 @@ export interface AdoConnectionCreate {
   work_item_type: string
 }
 
+export interface Project {
+  id: string
+  name: string
+  created_at: string
+}
+
+export interface ProjectCreate {
+  name: string
+}
+
 export interface PollResult {
   polled: number
   alarm_count: number

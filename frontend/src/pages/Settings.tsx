@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, errText } from '../lib/api'
-import type { AdoConnection, CloudConnection, PollResult, PollSchedule } from '../lib/types'
+import type { AdoConnection, CloudConnection, PollResult, PollSchedule, Project } from '../lib/types'
+import { ProjectRegistry } from '../features/settings/ProjectRegistry'
 import { CloudConnectionForm } from '../features/settings/CloudConnectionForm'
 import { CloudConnectionTable } from '../features/settings/CloudConnectionTable'
 import { AdoConnectionForm } from '../features/settings/AdoConnectionForm'
@@ -36,6 +37,7 @@ function SettingsContent() {
   const [schedule, setSchedule] = useState<PollSchedule | null>(null)
   const [adoConnections, setAdoConnections] = useState<AdoConnection[]>([])
   const [editingAdo, setEditingAdo] = useState<AdoConnection | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
 
   const load = async () => {
     setLoading(true)
@@ -65,10 +67,19 @@ function SettingsContent() {
     }
   }
 
+  const loadProjects = async () => {
+    try {
+      setProjects(await api.get<Project[]>('/api/projects'))
+    } catch {
+      setProjects([]) // non-critical — forms just show "No projects yet" until this loads
+    }
+  }
+
   useEffect(() => {
     load()
     loadSchedule()
     loadAdo()
+    loadProjects()
   }, [])
 
   const refreshNow = async () => {
@@ -88,6 +99,12 @@ function SettingsContent() {
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="animate-in flex flex-col gap-6">
+        <ProjectRegistry
+          projects={projects}
+          onCreated={(p) => setProjects((prev) => [...prev, p])}
+          onDeleted={(id) => setProjects((prev) => prev.filter((p) => p.id !== id))}
+        />
+
         <ClaudeTokenForm />
         <LlmUsageCard />
 
