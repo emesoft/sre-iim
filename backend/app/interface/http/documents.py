@@ -11,10 +11,16 @@ import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.application.documents.ingest import EmptyDocumentError, IngestDocument
+from app.application.documents.ingest import EmptyDocumentError, IngestDocument, UpdateDocument
 from app.domain.documents.entities import SOURCE_TYPES
 from app.domain.documents.ports import DocumentRepository
-from app.interface.http.deps import get_document_repository, get_ingest_document
+from app.domain.shared import UnitOfWork
+from app.interface.http.deps import (
+    get_document_repository,
+    get_ingest_document,
+    get_unit_of_work,
+    get_update_document,
+)
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import DocumentIngestRequest
 from app.interface.http.dto.response import DocumentCreatedResponse, DocumentDetail, DocumentSummary
@@ -68,3 +74,44 @@ async def get_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
     document, chunks = result
     return mappers.document_detail(document, chunks)
+
+
+@router.patch("/{document_id}", response_model=DocumentDetail)
+async def update_document(
+    document_id: uuid.UUID,
+    body: DocumentIngestRequest,
+    update: UpdateDocument = Depends(get_update_document),
+) -> DocumentDetail:
+    """Replace a document's metadata and content — re-chunks and re-embeds it."""
+    if body.source_type not in SOURCE_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"source_type must be one of {list(SOURCE_TYPES)}",
+        )
+    try:
+        result = await update.execute(
+            document_id,
+            title=body.title,
+            source_type=body.source_type,
+            service=body.service,
+            tags=body.tags,
+            content=body.content,
+        )
+    except EmptyDocumentError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="document not found")
+    document, chunks = result
+    return mappers.document_detail(document, chunks)
+
+
+@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: uuid.UUID,
+    repo: DocumentRepository = Depends(get_document_repository),
+    uow: UnitOfWork = Depends(get_unit_of_work),
+) -> None:
+    await repo.delete(document_id)
+    await uow.commit()

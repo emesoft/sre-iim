@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.application.ado_connections.manage import ManageAdoConnections
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
-from app.application.documents.ingest import IngestDocument
+from app.application.documents.ingest import IngestDocument, UpdateDocument
 from app.application.incidents.chat import IncidentChat
 from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
@@ -234,6 +234,17 @@ def get_ingest_document(
     embedder: Embedder = Depends(get_embedder),
 ) -> IngestDocument:
     return IngestDocument(
+        documents=SqlAlchemyDocumentRepository(session),
+        embedder=embedder,
+        uow=SqlAlchemyUnitOfWork(session),
+    )
+
+
+def get_update_document(
+    session: AsyncSession = Depends(get_session),
+    embedder: Embedder = Depends(get_embedder),
+) -> UpdateDocument:
+    return UpdateDocument(
         documents=SqlAlchemyDocumentRepository(session),
         embedder=embedder,
         uow=SqlAlchemyUnitOfWork(session),

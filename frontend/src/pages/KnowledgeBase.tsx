@@ -14,6 +14,8 @@ export function KnowledgeBase({
   onRetry: () => void
   onNew: () => void
 }) {
+  // The document list and the detail modal share the same underlying data, so a save/delete
+  // inside the modal reuses the page's existing refetch (`onRetry`) rather than a separate one.
   const [selectedId, setSelectedId] = useState<string | null>(null)
 
   return (
@@ -30,7 +32,7 @@ export function KnowledgeBase({
           onSelect={setSelectedId}
         />
       </div>
-      <DocumentDetailModal documentId={selectedId} onClose={() => setSelectedId(null)} />
+      <DocumentDetailModal documentId={selectedId} onClose={() => setSelectedId(null)} onChanged={onRetry} />
     </div>
   )
 }
