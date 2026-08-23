@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api, errText } from '../lib/api'
-import type { CloudConnection, PollResult, PollSchedule } from '../lib/types'
+import type { AdoConnection, CloudConnection, PollResult, PollSchedule } from '../lib/types'
 import { CloudConnectionForm } from '../features/settings/CloudConnectionForm'
 import { CloudConnectionTable } from '../features/settings/CloudConnectionTable'
+import { AdoConnectionForm } from '../features/settings/AdoConnectionForm'
+import { AdoConnectionTable } from '../features/settings/AdoConnectionTable'
 import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
 import { LlmUsageCard } from '../features/settings/LlmUsageCard'
 import { AdminGate } from '../features/settings/AdminGate'
@@ -32,6 +34,8 @@ function SettingsContent() {
   const [refreshResult, setRefreshResult] = useState<{ ok: boolean; text: string } | null>(null)
   const [editing, setEditing] = useState<CloudConnection | null>(null)
   const [schedule, setSchedule] = useState<PollSchedule | null>(null)
+  const [adoConnections, setAdoConnections] = useState<AdoConnection[]>([])
+  const [editingAdo, setEditingAdo] = useState<AdoConnection | null>(null)
 
   const load = async () => {
     setLoading(true)
@@ -53,9 +57,18 @@ function SettingsContent() {
     }
   }
 
+  const loadAdo = async () => {
+    try {
+      setAdoConnections(await api.get<AdoConnection[]>('/api/ado-connections'))
+    } catch {
+      setAdoConnections([]) // non-critical — the ticket flow just reports "not configured"
+    }
+  }
+
   useEffect(() => {
     load()
     loadSchedule()
+    loadAdo()
   }, [])
 
   const refreshNow = async () => {
@@ -124,6 +137,23 @@ function SettingsContent() {
             }
           />
         )}
+
+        <AdoConnectionForm
+          editing={editingAdo}
+          onCreated={(c) => setAdoConnections((prev) => [...prev, c])}
+          onUpdated={(c) => {
+            setAdoConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
+            setEditingAdo(null)
+          }}
+          onCancelEdit={() => setEditingAdo(null)}
+        />
+
+        <h3 className="text-sm font-semibold text-muted">Azure DevOps connections</h3>
+        <AdoConnectionTable
+          rows={adoConnections}
+          onDeleted={(id) => setAdoConnections((prev) => prev.filter((c) => c.id !== id))}
+          onEdit={setEditingAdo}
+        />
       </div>
     </div>
   )

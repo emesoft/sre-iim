@@ -157,6 +157,23 @@ export interface TestConnectionResult {
   error: string | null
 }
 
+export interface AdoConnection {
+  id: string
+  project: string
+  org: string
+  ado_project: string
+  work_item_type: string
+  created_at: string
+}
+
+export interface AdoConnectionCreate {
+  project: string
+  org: string
+  ado_project: string
+  pat?: string
+  work_item_type: string
+}
+
 export interface PollResult {
   polled: number
   alarm_count: number
