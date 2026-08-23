@@ -4,8 +4,6 @@ import type { AdoConnection, CloudConnection, PollResult, PollSchedule, Project 
 import { ProjectRegistry } from '../features/settings/ProjectRegistry'
 import { CloudConnectionForm } from '../features/settings/CloudConnectionForm'
 import { CloudConnectionTable } from '../features/settings/CloudConnectionTable'
-import { AdoConnectionForm } from '../features/settings/AdoConnectionForm'
-import { AdoConnectionTable } from '../features/settings/AdoConnectionTable'
 import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
 import { LlmUsageCard } from '../features/settings/LlmUsageCard'
 import { AdminGate } from '../features/settings/AdminGate'
@@ -36,7 +34,6 @@ function SettingsContent() {
   const [editing, setEditing] = useState<CloudConnection | null>(null)
   const [schedule, setSchedule] = useState<PollSchedule | null>(null)
   const [adoConnections, setAdoConnections] = useState<AdoConnection[]>([])
-  const [editingAdo, setEditingAdo] = useState<AdoConnection | null>(null)
   const [projects, setProjects] = useState<Project[]>([])
 
   const load = async () => {
@@ -101,8 +98,14 @@ function SettingsContent() {
       <div className="animate-in flex flex-col gap-6">
         <ProjectRegistry
           projects={projects}
-          onCreated={(p) => setProjects((prev) => [...prev, p])}
-          onDeleted={(id) => setProjects((prev) => prev.filter((p) => p.id !== id))}
+          adoConnections={adoConnections}
+          onProjectCreated={(p) => setProjects((prev) => [...prev, p])}
+          onProjectDeleted={(id) => setProjects((prev) => prev.filter((p) => p.id !== id))}
+          onAdoCreated={(c) => setAdoConnections((prev) => [...prev, c])}
+          onAdoUpdated={(c) =>
+            setAdoConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
+          }
+          onAdoDeleted={(id) => setAdoConnections((prev) => prev.filter((c) => c.id !== id))}
         />
 
         <ClaudeTokenForm />
@@ -155,24 +158,6 @@ function SettingsContent() {
             }
           />
         )}
-
-        <AdoConnectionForm
-          editing={editingAdo}
-          projects={projects}
-          onCreated={(c) => setAdoConnections((prev) => [...prev, c])}
-          onUpdated={(c) => {
-            setAdoConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
-            setEditingAdo(null)
-          }}
-          onCancelEdit={() => setEditingAdo(null)}
-        />
-
-        <h3 className="text-sm font-semibold text-muted">Azure DevOps connections</h3>
-        <AdoConnectionTable
-          rows={adoConnections}
-          onDeleted={(id) => setAdoConnections((prev) => prev.filter((c) => c.id !== id))}
-          onEdit={setEditingAdo}
-        />
       </div>
     </div>
   )
