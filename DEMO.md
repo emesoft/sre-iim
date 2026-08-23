@@ -9,6 +9,35 @@ Thời gian setup lần đầu: ~15 phút (chủ yếu chờ `docker compose up 
 
 ---
 
+## 0. Sơ đồ luồng xử lý
+
+Toàn bộ vòng đời một incident, đúng thứ tự sẽ trình diễn ở mục 8:
+
+```mermaid
+flowchart TD
+    A["CloudWatch Alarm tự động<br/>hoặc New incident thủ công"] --> B["Incident<br/>status = new"]
+    B --> C["RAG: truy xuất evidence<br/>từ Knowledge Base (pgvector)"]
+    C --> D["Claude Code CLI phân tích<br/>Summary / Root cause / Recommended action"]
+    D --> E{"Khớp một incident<br/>đã resolved trước đó?"}
+    E -- "Có — Known issue" --> F["Banner Known issue<br/>+ link case cũ"]
+    E -- "Không" --> G["status = analyzed"]
+    F --> G
+    G --> H["Chat with Claude<br/>tool-calling: fetch_logs"]
+    G --> I{"Create ADO ticket"}
+    I -- "Incident đã có ticket" --> I1["409 — trả link ticket cũ,<br/>không tạo trùng"]
+    I -- "Là recurrence, case cũ có ticket" --> I2["Tạo ticket mới<br/>+ Related link sang ticket cũ"]
+    I -- "Ca mới hoàn toàn" --> I3["Tạo ticket mới"]
+    G --> J["Mark resolved"]
+    J --> K["Lưu thành known-issue<br/>cho RAG — vòng feedback"]
+    K -.-> C
+    J --> L["Reports: Generate report<br/>digest theo ngày cho Slack"]
+```
+
+> Nói khi trình diễn: "Đây là một vòng lặp khép kín — mỗi ca được resolve sẽ tự động trở thành
+> bằng chứng cho lần phân tích tiếp theo, không cần ai ngồi viết lại runbook thủ công."
+
+---
+
 ## 1. Yêu cầu trên máy demo
 
 - Docker Desktop (hoặc Docker Engine + Compose) đã cài và đang chạy.
