@@ -153,15 +153,58 @@ tạo ticket) — chỉ cần thiết nếu muốn demo:
 
 ### AWS connection — SSO profile hoặc Access key
 
-**SSO profile**: cấu hình sẵn `~/.aws/config` trên máy host, `aws sso login --profile <name>` trước
-khi bấm Refresh; token SSO có hạn, hết hạn thì đăng nhập lại là đủ, không cần sửa gì trong app.
+Container backend đọc `~/.aws` của **máy host** (mount read-only qua `docker-compose.yml`, biến
+`AWS_CONFIG_DIR` nếu muốn đổi đường dẫn) — không có bước nào cấu hình AWS *bên trong* container.
 
-**Access key**: đơn giản hơn, không cần chuẩn bị gì trên host — tạo 1 IAM user quyền tối thiểu
-`cloudwatch:DescribeAlarms` (policy `CloudWatchReadOnlyAccess`), dán Access Key ID + Secret vào
-form (được mã hóa ngay khi lưu).
+**Cách A — SSO profile (khuyến nghị nếu công ty dùng AWS IAM Identity Center):**
 
-Sau khi thêm connection: bấm **Test** để xác nhận gọi CloudWatch thành công thật, rồi **Refresh**
-để poll ngay (mặc định tự poll mỗi 60 phút).
+1. Chạy trên máy host (không phải trong container):
+   ```bash
+   aws configure sso
+   ```
+   Lệnh này hỏi lần lượt: SSO start URL (link IAM Identity Center của tổ chức, dạng
+   `https://your-org.awsapps.com/start`), SSO region, sau đó mở trình duyệt để đăng nhập và chọn
+   account/role. Cuối cùng hỏi tên profile — đặt tên gợi nhớ, ví dụ `rxdevs-prod-readonly`.
+
+   Muốn tự viết tay thay vì chạy wizard, thêm thẳng vào `~/.aws/config`:
+   ```ini
+   [sso-session my-sso]
+   sso_start_url = https://your-org.awsapps.com/start
+   sso_region = us-east-1
+   sso_registration_scopes = sso:account:access
+
+   [profile rxdevs-prod-readonly]
+   sso_session = my-sso
+   sso_account_id = 123456789012
+   sso_role_name = ReadOnlyAccess
+   region = us-east-1
+   output = json
+   ```
+
+2. Đăng nhập (mở trình duyệt, cache token vào `~/.aws/sso/cache/` — container chỉ đọc, không tự
+   đăng nhập hộ được):
+   ```bash
+   aws sso login --profile rxdevs-prod-readonly
+   ```
+
+3. Xác nhận lấy được quyền trước khi qua app (đỡ mất công debug trong UI):
+   ```bash
+   aws cloudwatch describe-alarms --profile rxdevs-prod-readonly --max-records 1
+   ```
+
+4. Vào app → Settings → Projects → thêm AWS connection, chọn **SSO profile**, gõ đúng tên profile
+   (`rxdevs-prod-readonly`) — **gõ đúng tên**, app không tự liệt kê danh sách profile có sẵn.
+
+Token SSO có hạn (thường vài giờ tùy tổ chức cấu hình) — hết hạn thì poll sẽ lỗi rõ ràng trong UI,
+chỉ cần chạy lại đúng lệnh `aws sso login --profile <name>` ở bước 2, không cần sửa gì trong app.
+
+**Cách B — Access key (đơn giản hơn, không cần chuẩn bị gì trên host):** tạo 1 IAM user quyền tối
+thiểu `cloudwatch:DescribeAlarms` (policy có sẵn `CloudWatchReadOnlyAccess` là đủ), tạo Access Key
+cho user đó, dán Access Key ID + Secret access key thẳng vào form trong app (được mã hóa ngay khi
+lưu, không cần đụng gì tới `~/.aws` trên host).
+
+Sau khi thêm connection (dù cách nào): bấm **Test** để xác nhận gọi CloudWatch thành công thật, rồi
+**Refresh** để poll ngay (mặc định tự poll mỗi 60 phút).
 
 ### Azure DevOps connection
 
