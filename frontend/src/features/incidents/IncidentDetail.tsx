@@ -283,7 +283,7 @@ export function IncidentDetail({
       )}
 
       {/* Chat */}
-      <ChatPanel incident={d} />
+      <ChatPanel incident={d} key={d.id} />
 
       {/* Raw context */}
       <details className="group rounded-2xl border border-hair bg-surface">

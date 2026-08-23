@@ -47,7 +47,13 @@ export function ChatPanel({ incident }: { incident: IncidentDetail }) {
     api
       .post<ChatMessageOut>(`/api/incidents/${incident.id}/chat`, { message: text })
       .then((reply) => setMessages((prev) => [...prev, reply]))
-      .catch((e) => setErr(errText(e)))
+      .catch((e) => {
+        // Send failed — drop the optimistic bubble so it doesn't look sent, and give the
+        // text back to the user instead of silently losing it.
+        setMessages((prev) => prev.filter((m) => m.id !== optimisticUser.id))
+        setInput(optimisticUser.content)
+        setErr(errText(e))
+      })
       .finally(() => setSending(false))
   }
 
