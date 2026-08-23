@@ -212,7 +212,9 @@ export function IncidentDetail({
         <Card className="divide-y divide-hair">
           <Section label="Summary">{a.summary}</Section>
           <Section label="Root cause">{a.root_cause}</Section>
-          <Section label="Recommended action">{a.recommended_action}</Section>
+          <Section label="Recommended action">
+            <RecommendedAction text={a.recommended_action} />
+          </Section>
           <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-5 py-3.5 text-xs text-muted">
             <span className="inline-flex items-center gap-1.5">
               <Gauge size={13} /> confidence{' '}
@@ -305,8 +307,38 @@ function Section({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="px-5 py-4">
       <Eyebrow>{label}</Eyebrow>
-      <p className="mt-1.5 leading-relaxed text-ink">{children}</p>
+      <div className="mt-1.5 whitespace-pre-wrap leading-relaxed text-ink">{children}</div>
     </div>
+  )
+}
+
+/** Splits "1. foo\n2. bar" into ["foo", "bar"]; returns null for anything that isn't a
+ * multi-step numbered list (a single plain-sentence action, or older un-numbered analyses),
+ * so those still render as a normal paragraph. */
+function parseSteps(text: string): string[] | null {
+  const steps = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.match(/^\d+[.)]\s*(.+)$/)?.[1])
+    .filter((step): step is string => Boolean(step))
+  return steps.length >= 2 ? steps : null
+}
+
+function RecommendedAction({ text }: { text: string }) {
+  const steps = parseSteps(text)
+  if (!steps) return <>{text}</>
+  return (
+    <ol className="space-y-2">
+      {steps.map((step, i) => (
+        <li key={i} className="flex gap-2.5">
+          <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-surface-2 text-[11px] font-bold text-accent">
+            {i + 1}
+          </span>
+          <span className="flex-1">{step}</span>
+        </li>
+      ))}
+    </ol>
   )
 }
 
