@@ -4,6 +4,8 @@ Monkeypatches the module-level `_call_claude_cli` and `_get_token` helpers so th
 shell out to the real `claude` binary or hit Postgres.
 """
 
+import uuid
+
 import pytest
 
 from app.infrastructure.config import Settings
@@ -212,3 +214,105 @@ async def test_verify_reports_when_no_token_is_configured(monkeypatch):
     ok, error = await verify_claude_cli_token(_settings())
     assert ok is False
     assert "not configured" in error
+
+
+async def test_chat_sends_session_id_for_a_new_session(monkeypatch):
+    calls = []
+
+    async def fake_run_cli(cmd, token):
+        calls.append(cmd)
+        return claude_cli._CliResult(text="answer", input_tokens=50, output_tokens=20)
+
+    async def fake_get_token(settings):
+        return "test-token"
+
+    monkeypatch.setattr(claude_cli, "_run_cli", fake_run_cli)
+    monkeypatch.setattr(claude_cli, "_get_token", fake_get_token)
+
+    chat = claude_cli.ClaudeCliChat(_settings())
+    session_id = uuid.uuid4()
+    result = await chat.send(
+        service="GCM", context={"service": "GCM"}, message="check logs",
+        claude_session_id=session_id, is_new_session=True,
+    )
+
+    assert result.text == "answer"
+    assert result.claude_session_id == session_id
+    assert len(calls) == 1
+    assert "--session-id" in calls[0]
+    assert "--resume" not in calls[0]
+    assert "--mcp-config" in calls[0]
+    assert "--strict-mcp-config" in calls[0]
+    assert "mcp__iim-tools__fetch_logs" in calls[0]
+
+
+async def test_chat_resumes_an_existing_session(monkeypatch):
+    calls = []
+
+    async def fake_run_cli(cmd, token):
+        calls.append(cmd)
+        return claude_cli._CliResult(text="follow-up answer", input_tokens=5, output_tokens=3)
+
+    async def fake_get_token(settings):
+        return "test-token"
+
+    monkeypatch.setattr(claude_cli, "_run_cli", fake_run_cli)
+    monkeypatch.setattr(claude_cli, "_get_token", fake_get_token)
+
+    chat = claude_cli.ClaudeCliChat(_settings())
+    session_id = uuid.uuid4()
+    result = await chat.send(
+        service="GCM", context={}, message="and then?",
+        claude_session_id=session_id, is_new_session=False,
+    )
+
+    assert result.claude_session_id == session_id
+    assert "--resume" in calls[0]
+    assert "--session-id" not in calls[0]
+
+
+async def test_chat_falls_back_to_a_fresh_session_when_resume_fails(monkeypatch):
+    calls = []
+
+    async def fake_run_cli(cmd, token):
+        calls.append(cmd)
+        if "--resume" in cmd:
+            raise RuntimeError("claude CLI failed: No conversation found with session ID")
+        return claude_cli._CliResult(text="fresh answer", input_tokens=1, output_tokens=1)
+
+    async def fake_get_token(settings):
+        return "test-token"
+
+    monkeypatch.setattr(claude_cli, "_run_cli", fake_run_cli)
+    monkeypatch.setattr(claude_cli, "_get_token", fake_get_token)
+
+    chat = claude_cli.ClaudeCliChat(_settings())
+    stale_session_id = uuid.uuid4()
+    result = await chat.send(
+        service="GCM", context={}, message="hi again",
+        claude_session_id=stale_session_id, is_new_session=False,
+    )
+
+    assert result.text == "fresh answer"
+    assert result.claude_session_id != stale_session_id
+    assert len(calls) == 2
+    assert "--resume" in calls[0]
+    assert "--session-id" in calls[1]
+
+
+async def test_chat_raises_when_a_brand_new_session_fails_outright(monkeypatch):
+    async def fake_run_cli(cmd, token):
+        raise RuntimeError("claude CLI failed: 401 Invalid bearer token")
+
+    async def fake_get_token(settings):
+        return "test-token"
+
+    monkeypatch.setattr(claude_cli, "_run_cli", fake_run_cli)
+    monkeypatch.setattr(claude_cli, "_get_token", fake_get_token)
+
+    chat = claude_cli.ClaudeCliChat(_settings())
+    with pytest.raises(RuntimeError, match="401"):
+        await chat.send(
+            service="GCM", context={}, message="hi",
+            claude_session_id=uuid.uuid4(), is_new_session=True,
+        )

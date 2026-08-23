@@ -21,10 +21,11 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import uuid
 from dataclasses import dataclass
 
 from app.domain.documents.entities import RetrievedChunk
-from app.domain.incidents.entities import AnalysisDraft
+from app.domain.incidents.entities import AnalysisDraft, ChatTurnResult
 from app.domain.incidents.prompts import (
     RETRIEVED_KNOWLEDGE_RULES,
     SYSTEM_PROMPT,
@@ -59,16 +60,9 @@ class _CliResult:
     output_tokens: int | None
 
 
-async def _call_claude_cli(
-    *, prompt: str, system_prompt: str | None, model: str, token: str
-) -> _CliResult:
-    """Run `claude -p` headless, authenticated via CLAUDE_CODE_OAUTH_TOKEN, and return the
-    response text plus token usage. Raises RuntimeError on any CLI-reported failure (auth, rate
-    limit, bad model)."""
-    cmd = ["claude", "-p", prompt, "--output-format", "json", "--tools", "", "--safe-mode", "--model", model]
-    if system_prompt:
-        cmd.extend(["--append-system-prompt", system_prompt])
-
+async def _run_cli(cmd: list[str], token: str) -> _CliResult:
+    """Run an already-built `claude` command, authenticated via CLAUDE_CODE_OAUTH_TOKEN, and
+    parse the JSON output into a _CliResult. Raises RuntimeError on any CLI-reported failure."""
     env = dict(os.environ)
     env.pop("ANTHROPIC_API_KEY", None)  # API key would silently outrank the OAuth token
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
@@ -108,6 +102,17 @@ async def _call_claude_cli(
         input_tokens=input_tokens,
         output_tokens=usage.get("output_tokens"),
     )
+
+
+async def _call_claude_cli(
+    *, prompt: str, system_prompt: str | None, model: str, token: str
+) -> _CliResult:
+    """Run `claude -p` headless with no tools at all — analysis / graph-mode / daily-report calls
+    never need Claude to act autonomously (only incident chat does; see ClaudeCliChat below)."""
+    cmd = ["claude", "-p", prompt, "--output-format", "json", "--tools", "", "--safe-mode", "--model", model]
+    if system_prompt:
+        cmd.extend(["--append-system-prompt", system_prompt])
+    return await _run_cli(cmd, token)
 
 
 async def verify_claude_cli_token(settings: Settings) -> tuple[bool, str | None]:
@@ -165,3 +170,111 @@ class ClaudeCliChatModel:
             prompt=user, system_prompt=system, model=self._settings.claude_cli_model, token=token
         )
         return result.text
+
+
+_CHAT_SYSTEM_PROMPT = """You are a senior SRE helping investigate one specific incident in a chat conversation. \
+You have the incident's full raw context below. Answer the user's questions grounded in that context. \
+If you need log lines you don't already have to answer well, call the fetch_logs tool rather than guessing — \
+it fetches real log lines for this incident's own service. Never invent log content, metrics, or events \
+that aren't in the context or in a tool result. Be concise and direct, like an engineer working the incident live."""
+
+
+def _chat_system_prompt(context: dict) -> str:
+    return f"{_CHAT_SYSTEM_PROMPT}\n\nIncident context:\n{json.dumps(context, indent=2, default=str)}"
+
+
+class ClaudeCliChat:
+    """Runs one incident-chat turn through the Claude Code CLI's own agentic tool-use loop (an
+    MCP server exposing `fetch_logs`, see `mcp_log_tool.py`) — distinct from `ClaudeCliChatModel`,
+    which returns plain text with no tools enabled. Only this class needs tools, because incident
+    chat is the first feature where Claude must be able to act autonomously mid-call (design spec
+    .claude/specs/2026-08-23-incident-chat-design.md)."""
+
+    def __init__(self, settings: Settings) -> None:
+        self._settings = settings
+
+    async def send(
+        self,
+        *,
+        service: str,
+        context: dict,
+        message: str,
+        claude_session_id: uuid.UUID,
+        is_new_session: bool,
+    ) -> ChatTurnResult:
+        token = await _get_token(self._settings)
+        system_prompt = _chat_system_prompt(context)
+        try:
+            result = await self._run_turn(
+                service=service,
+                message=message,
+                system_prompt=system_prompt,
+                token=token,
+                session_id=claude_session_id,
+                resume=not is_new_session,
+            )
+            return ChatTurnResult(
+                text=result.text,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                claude_session_id=claude_session_id,
+            )
+        except RuntimeError:
+            if is_new_session:
+                raise  # a fresh session failing outright is a real error, not a stale-resume problem
+            # --resume pointed at a session the CLI no longer has (e.g. the backend container was
+            # recreated between turns) — start a fresh session rather than hard-failing the chat.
+            new_session_id = uuid.uuid4()
+            result = await self._run_turn(
+                service=service,
+                message=message,
+                system_prompt=system_prompt,
+                token=token,
+                session_id=new_session_id,
+                resume=False,
+            )
+            return ChatTurnResult(
+                text=result.text,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                claude_session_id=new_session_id,
+            )
+
+    async def _run_turn(
+        self,
+        *,
+        service: str,
+        message: str,
+        system_prompt: str,
+        token: str,
+        session_id: uuid.UUID,
+        resume: bool,
+    ) -> _CliResult:
+        # The MCP server subprocess is spawned BY `claude`, not by us — it needs the same
+        # PROJECT_<SERVICE>_*/DEMO_LOGS/AWS_* config this process has, not just the one extra
+        # variable, so build_log_fetcher() works inside it. Merging the full environment here is
+        # correct regardless of whether `claude` additively merges or replaces inherited env for
+        # its MCP children.
+        mcp_env = {**os.environ, "IIM_INCIDENT_SERVICE": service}
+        mcp_config = json.dumps(
+            {
+                "mcpServers": {
+                    "iim-tools": {
+                        "command": "python3",
+                        "args": ["-m", "app.infrastructure.llm.mcp_log_tool"],
+                        "env": mcp_env,
+                    }
+                }
+            }
+        )
+        cmd = [
+            "claude", "-p", message,
+            "--output-format", "json",
+            "--mcp-config", mcp_config,
+            "--strict-mcp-config",
+            "--allowedTools", "mcp__iim-tools__fetch_logs",
+            "--safe-mode", "--model", self._settings.claude_cli_model,
+            "--append-system-prompt", system_prompt,
+            "--resume" if resume else "--session-id", str(session_id),
+        ]
+        return await _run_cli(cmd, token)
