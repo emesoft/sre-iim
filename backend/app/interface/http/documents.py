@@ -12,18 +12,25 @@ import uuid
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.documents.ingest import EmptyDocumentError, IngestDocument, UpdateDocument
+from app.application.documents.seed import SeedDefaultDocuments
 from app.domain.documents.entities import SOURCE_TYPES
 from app.domain.documents.ports import DocumentRepository
 from app.domain.shared import UnitOfWork
 from app.interface.http.deps import (
     get_document_repository,
     get_ingest_document,
+    get_seed_default_documents,
     get_unit_of_work,
     get_update_document,
 )
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import DocumentIngestRequest
-from app.interface.http.dto.response import DocumentCreatedResponse, DocumentDetail, DocumentSummary
+from app.interface.http.dto.response import (
+    DocumentCreatedResponse,
+    DocumentDetail,
+    DocumentSummary,
+    SeedDocumentsResponse,
+)
 
 router = APIRouter(prefix="/api/documents", tags=["documents"])
 
@@ -52,6 +59,16 @@ async def create_document(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
         ) from exc
     return DocumentCreatedResponse(document_id=document.id, chunks=chunks)
+
+
+@router.post("/seed", response_model=SeedDocumentsResponse)
+async def seed_documents(
+    seed: SeedDefaultDocuments = Depends(get_seed_default_documents),
+) -> SeedDocumentsResponse:
+    """Ingest the bundled starter runbooks (app/seed_docs/*.md), skipping any title already
+    indexed. Safe to call repeatedly — it never duplicates or re-embeds an existing document."""
+    seeded, skipped = await seed.execute()
+    return SeedDocumentsResponse(seeded=seeded, skipped=skipped)
 
 
 @router.get("", response_model=list[DocumentSummary])

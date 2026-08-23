@@ -12,6 +12,7 @@ from app.interface.http.dto.response.document import (
     DocumentCreatedResponse,
     DocumentDetail,
     DocumentSummary,
+    SeedDocumentsResponse,
 )
 from app.interface.http.dto.response.health import HealthResponse
 from app.interface.http.dto.response.incident import (
@@ -36,6 +37,7 @@ __all__ = [
     "DocumentCreatedResponse",
     "DocumentSummary",
     "DocumentDetail",
+    "SeedDocumentsResponse",
     "HealthResponse",
     "DailyReportOut",
     "ReportIncidentOut",

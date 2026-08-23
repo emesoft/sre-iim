@@ -104,6 +104,11 @@ export interface DocumentCreated {
   chunks: number
 }
 
+export interface SeedDocumentsResponse {
+  seeded: number
+  skipped: number
+}
+
 export interface Health {
   status: string
   app: string

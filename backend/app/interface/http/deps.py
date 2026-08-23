@@ -19,6 +19,7 @@ from app.application.ado_connections.manage import ManageAdoConnections
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
 from app.application.documents.ingest import IngestDocument, UpdateDocument
+from app.application.documents.seed import SeedDefaultDocuments
 from app.application.incidents.chat import IncidentChat
 from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
@@ -249,6 +250,13 @@ def get_update_document(
         embedder=embedder,
         uow=SqlAlchemyUnitOfWork(session),
     )
+
+
+def get_seed_default_documents(
+    session: AsyncSession = Depends(get_session),
+    ingest: IngestDocument = Depends(get_ingest_document),
+) -> SeedDefaultDocuments:
+    return SeedDefaultDocuments(documents=SqlAlchemyDocumentRepository(session), ingest=ingest)
 
 
 def get_event_bus() -> IncidentEventBus:

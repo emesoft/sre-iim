@@ -32,3 +32,11 @@ class DocumentDetail(DocumentSummary):
     """`GET /api/documents/{id}`: the summary fields plus the full indexed text."""
 
     content: str
+
+
+class SeedDocumentsResponse(BaseModel):
+    """`POST /api/documents/seed` response: how many starter runbooks were newly indexed vs
+    already present (matched by title)."""
+
+    seeded: int
+    skipped: int
