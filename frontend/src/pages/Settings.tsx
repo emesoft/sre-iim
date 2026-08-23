@@ -110,6 +110,7 @@ function SettingsContent() {
 
         <CloudConnectionForm
           editing={editing}
+          projects={projects}
           onCreated={(c) => setConnections((prev) => [...prev, c])}
           onUpdated={(c) => {
             setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
@@ -157,6 +158,7 @@ function SettingsContent() {
 
         <AdoConnectionForm
           editing={editingAdo}
+          projects={projects}
           onCreated={(c) => setAdoConnections((prev) => [...prev, c])}
           onUpdated={(c) => {
             setAdoConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))

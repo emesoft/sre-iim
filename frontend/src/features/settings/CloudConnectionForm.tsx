@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api, errText } from '../../lib/api'
-import type { CloudConnection, CloudConnectionCreate } from '../../lib/types'
+import type { CloudConnection, CloudConnectionCreate, Project } from '../../lib/types'
 import { Button } from '../../components/ui/Button'
 import { SelectOrOtherField } from './SelectOrOtherField'
 
-const KNOWN_PROJECTS = ['BEC', 'EVP', 'GCM', 'SmartSuite', 'IIM']
 const KNOWN_ENVS = ['dev', 'qa', 'staging', 'prod']
 const KNOWN_REGIONS = ['us-east-1', 'us-east-2', 'us-west-2', 'ap-southeast-1']
 
@@ -13,17 +12,19 @@ const inputCls =
 
 export function CloudConnectionForm({
   editing,
+  projects,
   onCreated,
   onUpdated,
   onCancelEdit,
 }: {
   /** When set, the form edits this connection (PATCH) instead of creating a new one (POST). */
   editing?: CloudConnection | null
+  projects: Project[]
   onCreated?: (c: CloudConnection) => void
   onUpdated?: (c: CloudConnection) => void
   onCancelEdit?: () => void
 }) {
-  const [project, setProject] = useState(KNOWN_PROJECTS[0])
+  const [project, setProject] = useState('')
   const [env, setEnv] = useState(KNOWN_ENVS[3]) // prod
   const [region, setRegion] = useState(KNOWN_REGIONS[3]) // ap-southeast-1
   const [authType, setAuthType] = useState<'sso' | 'access_key'>('sso')
@@ -44,6 +45,11 @@ export function CloudConnectionForm({
     setSecretAccessKey('')
     setError(null)
   }, [editing])
+
+  useEffect(() => {
+    if (editing || project || projects.length === 0) return
+    setProject(projects[0].name)
+  }, [projects, editing, project])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -89,7 +95,25 @@ export function CloudConnectionForm({
         </div>
       )}
       <div className="flex gap-3">
-        <SelectOrOtherField label="Project" options={KNOWN_PROJECTS} value={project} onChange={setProject} />
+        {projects.length === 0 ? (
+          <p className="flex-1 text-sm text-muted">No projects yet — add one above.</p>
+        ) : (
+          <label className="flex-1 text-sm text-ink-2">
+            Project
+            <select
+              value={project}
+              onChange={(e) => setProject(e.target.value)}
+              className={inputCls}
+              required
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <SelectOrOtherField label="Env" options={KNOWN_ENVS} value={env} onChange={setEnv} />
         <SelectOrOtherField label="Region" options={KNOWN_REGIONS} value={region} onChange={setRegion} />
       </div>

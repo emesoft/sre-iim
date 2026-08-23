@@ -1,27 +1,26 @@
 import { useEffect, useState } from 'react'
 import { api, errText } from '../../lib/api'
-import type { AdoConnection, AdoConnectionCreate } from '../../lib/types'
+import type { AdoConnection, AdoConnectionCreate, Project } from '../../lib/types'
 import { Button } from '../../components/ui/Button'
-import { SelectOrOtherField } from './SelectOrOtherField'
-
-const KNOWN_PROJECTS = ['BEC', 'EVP', 'GCM', 'SmartSuite', 'IIM']
 
 const inputCls =
   'mt-1 w-full rounded-lg border border-hair bg-plane p-2 text-sm text-ink outline-none focus:border-accent'
 
 export function AdoConnectionForm({
   editing,
+  projects,
   onCreated,
   onUpdated,
   onCancelEdit,
 }: {
   /** When set, the form edits this connection (PATCH) instead of creating a new one (POST). */
   editing?: AdoConnection | null
+  projects: Project[]
   onCreated?: (c: AdoConnection) => void
   onUpdated?: (c: AdoConnection) => void
   onCancelEdit?: () => void
 }) {
-  const [project, setProject] = useState(KNOWN_PROJECTS[0])
+  const [project, setProject] = useState('')
   const [org, setOrg] = useState('')
   const [adoProject, setAdoProject] = useState('')
   const [pat, setPat] = useState('')
@@ -38,6 +37,11 @@ export function AdoConnectionForm({
     setPat('')
     setError(null)
   }, [editing])
+
+  useEffect(() => {
+    if (editing || project || projects.length === 0) return
+    setProject(projects[0].name)
+  }, [projects, editing, project])
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -80,7 +84,25 @@ export function AdoConnectionForm({
         </div>
       )}
       <div className="flex gap-3">
-        <SelectOrOtherField label="Project" options={KNOWN_PROJECTS} value={project} onChange={setProject} />
+        {projects.length === 0 ? (
+          <p className="flex-1 text-sm text-muted">No projects yet — add one above.</p>
+        ) : (
+          <label className="flex-1 text-sm text-ink-2">
+            Project
+            <select
+              value={project}
+              onChange={(e) => setProject(e.target.value)}
+              className={inputCls}
+              required
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.name}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <label className="flex-1 text-sm text-ink-2">
           ADO organization
           <input
