@@ -24,6 +24,7 @@ from app.application.incidents.daily_report import DailyReport
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
+from app.application.projects.manage import ManageProjects
 from app.domain.ado_connections.entities import AdoConnection
 from app.domain.ado_connections.ports import AdoConnectionRepository
 from app.domain.cloud_connections.ports import AlarmFetcher, CloudConnectionRepository
@@ -36,6 +37,7 @@ from app.domain.incidents.ports import (
     TicketClient,
 )
 from app.domain.llm import ChatModel
+from app.domain.projects.ports import ProjectRepository
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
 from app.infrastructure.cloud.credential_resolver import CredentialResolver
@@ -48,6 +50,7 @@ from app.infrastructure.db.repositories import (
     SqlAlchemyCloudConnectionRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyIncidentRepository,
+    SqlAlchemyProjectRepository,
     SqlAlchemyRetriever,
     SqlAlchemyTrackedAlarmRepository,
     SqlAlchemyUnitOfWork,
@@ -332,6 +335,19 @@ def get_ado_ticket_client_factory(
         )
 
     return _factory
+
+
+def get_project_repository(
+    session: AsyncSession = Depends(get_session),
+) -> ProjectRepository:
+    return SqlAlchemyProjectRepository(session)
+
+
+def get_manage_projects(
+    projects: ProjectRepository = Depends(get_project_repository),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+) -> ManageProjects:
+    return ManageProjects(projects=projects, uow=uow)
 
 
 def get_app_settings_repository(

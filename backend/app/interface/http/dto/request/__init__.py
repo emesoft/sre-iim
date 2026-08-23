@@ -9,6 +9,7 @@ from app.interface.http.dto.request.incident import (
     IncidentIngestRequest,
     ResolveIncidentRequest,
 )
+from app.interface.http.dto.request.project import ProjectCreateRequest
 from app.interface.http.dto.request.settings import SetTokenRequest
 
 __all__ = [
@@ -18,6 +19,7 @@ __all__ = [
     "DocumentIngestRequest",
     "CloudConnectionCreateRequest",
     "AdoConnectionCreateRequest",
+    "ProjectCreateRequest",
     "SetTokenRequest",
     "AdminLoginRequest",
 ]

@@ -39,6 +39,7 @@ from app.interface.http.deps import get_analyzer, get_base_analyzer, get_embedde
 from app.interface.http.documents import router as documents_router
 from app.interface.http.health import router as health_router
 from app.interface.http.incidents import router as incidents_router
+from app.interface.http.projects import router as projects_router
 from app.interface.http.reports import router as reports_router
 from app.interface.http.settings import router as settings_router
 
@@ -110,6 +111,7 @@ app.include_router(documents_router)
 app.include_router(reports_router)
 app.include_router(cloud_connections_router)
 app.include_router(ado_connections_router)
+app.include_router(projects_router)
 app.include_router(settings_router)
 app.include_router(auth_router)
 

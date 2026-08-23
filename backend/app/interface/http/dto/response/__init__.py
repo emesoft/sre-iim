@@ -18,6 +18,7 @@ from app.interface.http.dto.response.incident import (
     IncidentSummary,
     KnownIssueOut,
 )
+from app.interface.http.dto.response.project import ProjectOut
 from app.interface.http.dto.response.report import DailyReportOut, ReportIncidentOut
 from app.interface.http.dto.response.settings import LlmUsageOut, SettingStatus, UsageByModelOut
 
@@ -35,6 +36,7 @@ __all__ = [
     "ReportIncidentOut",
     "CloudConnectionOut",
     "AdoConnectionOut",
+    "ProjectOut",
     "TestConnectionResult",
     "PollResult",
     "PollScheduleOut",

@@ -9,6 +9,7 @@ from app.interface.http.dto.mappers.incident import (
     incident_detail,
     incident_summary,
 )
+from app.interface.http.dto.mappers.project import project_out
 
 __all__ = [
     "analysis_out",
@@ -18,4 +19,5 @@ __all__ = [
     "document_summary",
     "cloud_connection_out",
     "ado_connection_out",
+    "project_out",
 ]
