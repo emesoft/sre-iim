@@ -181,10 +181,42 @@ Container backend đọc `~/.aws` của **máy host** (mount read-only qua `dock
    output = json
    ```
 
+   **Cách khác — tạo `sso-session` bằng lệnh riêng** (tương đương, tiện khi muốn nhiều profile
+   dùng chung 1 session để chỉ login một lần):
+   ```bash
+   aws configure sso-session
+   # SSO session name: gcm
+   # SSO start URL: https://your-org.awsapps.com/start
+   # SSO region: <region IAM Identity Center instance đang chạy — xem AWS console, KHÔNG PHẢI
+   #              region chứa resource (CloudWatch...) muốn đọc>
+   # SSO registration scopes [sso:account:access]: (Enter, giữ mặc định)
+   ```
+   Lệnh trên chỉ tạo block `[sso-session gcm]` trong `~/.aws/config`, **chưa** tạo profile. Thêm
+   profile trỏ vào session đó (điền tay như trên, hoặc chạy `aws configure sso` và nhập lại đúng
+   start URL — CLI nhận ra session đã đăng nhập, hiện danh sách account/role để chọn thay vì bắt
+   gõ tay `sso_account_id`):
+   ```ini
+   [profile gcm-dev]
+   sso_session = gcm
+   sso_account_id = 800940621545
+   sso_role_name = ReadOnlyAccess
+   region = us-east-1
+   ```
+
+   > **Lỗi hay gặp**: `aws sso login --sso-session <name>` báo
+   > `InvalidRequestException` ở bước `RegisterClient` gần như luôn do **`sso_region` khai sai** —
+   > phải là region mà IAM Identity Center instance được bật (kiểm tra trong AWS console, mục
+   > IAM Identity Center → Settings), không phải region chứa resource muốn đọc (vd CloudWatch ở
+   > `ap-southeast-1` nhưng Identity Center instance lại bật ở `us-east-2` thì phải khai
+   > `sso_region = us-east-2`). Nguyên nhân khác ít gặp hơn: AWS CLI quá cũ (`aws --version`, cần
+   > **>= 2.9.0**) hoặc đồng hồ máy lệch giờ.
+
 2. Đăng nhập (mở trình duyệt, cache token vào `~/.aws/sso/cache/` — container chỉ đọc, không tự
    đăng nhập hộ được):
    ```bash
    aws sso login --profile rxdevs-prod-readonly
+   # hoặc nếu dùng sso-session riêng, login thẳng theo session (áp dụng cho mọi profile cùng session):
+   aws sso login --sso-session gcm
    ```
 
 3. Xác nhận lấy được quyền trước khi qua app (đỡ mất công debug trong UI):
