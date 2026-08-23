@@ -57,17 +57,13 @@ export interface IncidentDetail {
   error_message: string | null
 }
 
-export interface LogEventOut {
-  timestamp: string
-  message: string
-  /** Severity parsed from the line; null when the source line carried none. */
-  level: string | null
-}
-
-export interface LogSearchResult {
-  log_group: string
-  log_events: LogEventOut[]
-  analysis: AnalysisOut
+export interface ChatMessageOut {
+  id: string
+  role: 'user' | 'assistant'
+  content: string
+  input_tokens: number | null
+  output_tokens: number | null
+  created_at: string
 }
 
 export interface IncidentCreated {
