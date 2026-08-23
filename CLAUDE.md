@@ -62,6 +62,37 @@ hit (0 tokens). There is no test suite yet (`.gitignore` anticipates `pytest`).
   (e.g. `apac.anthropic.claude-...`) rather than the bare model id — confirm against the Bedrock console
   (Model access) if a call fails.
 
+## Testing — never run DB-touching pytest against the live dev database
+
+`backend/tests/` has real integration tests (`test_*_http.py`, `test_*_repository.py`) that connect
+to a **real Postgres** via `TEST_DATABASE_URL`/`DATABASE_URL`, and their fixtures **delete rows**
+from tables they touch (`cloud_connections`, `ado_connections`, `projects`, `documents`, `incidents`,
+...) before each test run. This is the same Postgres the `docker compose` stack uses for the app a
+person is actually looking at in their browser — there is no separate, automatically-isolated test
+database.
+
+This bit hard once already: a session ran the full suite against the live dev DB mid-development,
+which silently wiped real `cloud_connections`/`ado_connections` rows (encrypted AWS/ADO credentials,
+unrecoverable) and left fake test-generated incidents/documents visible in the running UI.
+
+Before running (or asking an agent to run) any `pytest` command that resolves a real
+`DATABASE_URL`/`TEST_DATABASE_URL` in this repo:
+- Confirm with the user first, unless they've explicitly asked for a full test run against a
+  database they know is disposable.
+- Prefer `ruff check`, `npm run build`, or unit tests that use fakes/mocks (no DB) to verify a
+  change instead.
+- If DB tests must run, treat it as a write operation against potentially-live data and say so
+  explicitly before running — don't assume a database named "test" or a `TEST_DATABASE_URL` env
+  var actually points somewhere disposable.
+
+Separately: every DB-touching test file's own hardcoded fallback connection string
+(`postgresql+asyncpg://iim:iim@localhost:5432/iim`) uses the **wrong password** for this repo's
+actual dev Postgres (see `docker-compose.yml` / `.env`'s `DB_PASSWORD`, default `change-me`).
+Running `pytest` without an explicit, correct `DATABASE_URL` doesn't fail loudly — it silently
+**skips** every DB-touching test (the fixture's connection attempt catches the error and calls
+`pytest.skip`), producing a falsely reassuring "0 failed" result while testing almost nothing.
+Always pass the real password explicitly when a DB test run is actually warranted.
+
 ## Frontend (`frontend/` — local test UI)
 
 A **Vite + React + TypeScript + Tailwind** single-page app that exercises the backend REST API
