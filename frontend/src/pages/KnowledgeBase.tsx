@@ -11,11 +11,13 @@ export function KnowledgeBase({
   query,
   onRetry,
   onNew,
+  canMutate,
 }: {
   data: DashboardData
   query: string
   onRetry: () => void
   onNew: () => void
+  canMutate: boolean
 }) {
   // The document list and the detail modal share the same underlying data, so a save/delete
   // inside the modal reuses the page's existing refetch (`onRetry`) rather than a separate one.
@@ -44,12 +46,14 @@ export function KnowledgeBase({
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="animate-in">
-        <div className="mb-3 flex items-center gap-3">
-          <Button variant="ghost" disabled={seeding} onClick={loadDefaults}>
-            {seeding ? 'Loading…' : 'Load default runbooks'}
-          </Button>
-          {seedResult && <p className="text-xs text-muted">{seedResult}</p>}
-        </div>
+        {canMutate && (
+          <div className="mb-3 flex items-center gap-3">
+            <Button variant="ghost" disabled={seeding} onClick={loadDefaults}>
+              {seeding ? 'Loading…' : 'Load default runbooks'}
+            </Button>
+            {seedResult && <p className="text-xs text-muted">{seedResult}</p>}
+          </div>
+        )}
         <DocumentList
           rows={data.docs}
           loading={data.loading}
@@ -59,9 +63,15 @@ export function KnowledgeBase({
           onRetry={onRetry}
           onNew={onNew}
           onSelect={setSelectedId}
+          canMutate={canMutate}
         />
       </div>
-      <DocumentDetailModal documentId={selectedId} onClose={() => setSelectedId(null)} onChanged={onRetry} />
+      <DocumentDetailModal
+        documentId={selectedId}
+        onClose={() => setSelectedId(null)}
+        onChanged={onRetry}
+        canMutate={canMutate}
+      />
     </div>
   )
 }

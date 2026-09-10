@@ -1,16 +1,31 @@
 """HTTP test for GET /api/reports/daily — overrides the whole DailyReport dependency with fakes
-(no DB, no LLM call needed to test the endpoint's request/response wiring).
+(no DB, no LLM call needed to test the endpoint's request/response wiring). Also overrides
+get_current_user with a fake consultant — reports.py is gated to "must be logged in as any role"
+now that per-user auth exists, and a consultant (read-only) is the most permissive-adjacent role
+to prove reads stay open to everyone.
 """
+
+import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.application.incidents.daily_report import DailyReport
-from app.interface.http.deps import get_daily_report
+from app.domain.users.entities import User
+from app.interface.http.deps import get_current_user, get_daily_report
 from app.main import app
 from tests.test_daily_report import FakeChatModel, FakeIncidentRepo, _analysis, _incident
 
 pytestmark = pytest.mark.asyncio
+
+_CONSULTANT_USER = User(
+    id=uuid.uuid4(),
+    email="consultant@test.local",
+    password_hash="unused",
+    role="consultant",
+    created_at=datetime.now(timezone.utc),
+)
 
 
 async def test_get_daily_report_returns_counts_and_markdown():
@@ -22,6 +37,7 @@ async def test_get_daily_report_returns_counts_and_markdown():
     app.dependency_overrides[get_daily_report] = lambda: DailyReport(
         incidents=repo, chat=FakeChatModel()
     )
+    app.dependency_overrides[get_current_user] = lambda: _CONSULTANT_USER
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:
@@ -48,6 +64,7 @@ async def test_get_daily_report_filters_by_service():
     app.dependency_overrides[get_daily_report] = lambda: DailyReport(
         incidents=repo, chat=FakeChatModel()
     )
+    app.dependency_overrides[get_current_user] = lambda: _CONSULTANT_USER
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

@@ -31,9 +31,11 @@ import { ChatPanel } from './ChatPanel'
 export function IncidentDetail({
   incidentId,
   onSelectIncident,
+  canMutate,
 }: {
   incidentId: string | null
   onSelectIncident: (id: string) => void
+  canMutate: boolean
 }) {
   const [d, setD] = useState<Detail | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -132,21 +134,23 @@ export function IncidentDetail({
             )}
           </div>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {(d.status === 'new' || d.status === 'failed') && (
-            <AnalyzeButton
-              incidentId={d.id}
-              retry={d.status === 'failed'}
-              onAnalyzeStarted={() => setD({ ...d, status: 'analyzing' })}
-            />
-          )}
-          {a && !a.known_issue && !d.ticket_url && (
-            <TicketButton incident={d} onTicketed={(next) => setD(next)} />
-          )}
-          {a && d.status !== 'resolved' && (
-            <ResolveButton incident={d} onResolved={(next) => setD(next)} />
-          )}
-        </div>
+        {canMutate && (
+          <div className="flex shrink-0 items-center gap-2">
+            {(d.status === 'new' || d.status === 'failed') && (
+              <AnalyzeButton
+                incidentId={d.id}
+                retry={d.status === 'failed'}
+                onAnalyzeStarted={() => setD({ ...d, status: 'analyzing' })}
+              />
+            )}
+            {a && !a.known_issue && !d.ticket_url && (
+              <TicketButton incident={d} onTicketed={(next) => setD(next)} />
+            )}
+            {a && d.status !== 'resolved' && (
+              <ResolveButton incident={d} onResolved={(next) => setD(next)} />
+            )}
+          </div>
+        )}
       </div>
 
       {/* Known issue */}
@@ -289,7 +293,7 @@ export function IncidentDetail({
       )}
 
       {/* Chat */}
-      <ChatPanel incident={d} key={d.id} />
+      <ChatPanel incident={d} canChat={canMutate} key={d.id} />
 
       {/* Raw context */}
       <details className="group rounded-2xl border border-hair bg-surface">

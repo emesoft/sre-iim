@@ -1,21 +1,32 @@
 """End-to-end HTTP tests for /api/ado-connections against real Postgres.
 
 Overrides get_encryptor with a fixed test key (same pattern as test_cloud_connections_http.py)
-and require_admin (covered separately by test_admin_gate_http.py).
+and get_current_user with a fake admin user (the role gate itself is covered separately by
+test_auth_http.py / test_users_http.py).
 """
 
 import os
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.domain.users.entities import User
 from app.infrastructure.db.orm import AdoConnectionRow, Base, CloudConnectionRow, ProjectRow
 from app.infrastructure.security.encryptor import Encryptor
-from app.interface.http.deps import get_encryptor, get_session, require_admin
+from app.interface.http.deps import get_current_user, get_encryptor, get_session
 from app.main import app
+
+_ADMIN_USER = User(
+    id=uuid.uuid4(),
+    email="admin@test.local",
+    password_hash="unused",
+    role="admin",
+    created_at=datetime.now(timezone.utc),
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -51,7 +62,7 @@ async def client():
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_encryptor] = lambda: Encryptor(_TEST_ENCRYPTION_KEY)
-    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[get_current_user] = lambda: _ADMIN_USER
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

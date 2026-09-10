@@ -7,6 +7,8 @@ skipped when no database is reachable.
 
 import asyncio
 import os
+import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -14,6 +16,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domain.incidents.entities import AnalysisDraft, Incident
+from app.domain.users.entities import User
 from app.infrastructure.db.orm import (
     EMBED_DIM,
     AnalysisCacheRow,
@@ -24,9 +27,19 @@ from app.infrastructure.db.orm import (
     IncidentRow,
 )
 from app.infrastructure.db.repositories import SqlAlchemyIncidentRepository, SqlAlchemyUnitOfWork
-from app.interface.http.deps import get_base_analyzer, get_embedder, get_session
+from app.interface.http.deps import get_base_analyzer, get_current_user, get_embedder, get_session
 from app.main import app
 from tests.sse_test_utils import iter_sse
+
+# incidents.py is gated (require_role) now that per-user auth exists — override get_current_user
+# with a fake admin so this suite exercises the ingest/stream flow, not the role gate.
+_ADMIN_USER = User(
+    id=uuid.uuid4(),
+    email="admin@test.local",
+    password_hash="unused",
+    role="admin",
+    created_at=datetime.now(timezone.utc),
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -121,6 +134,7 @@ def _client_for(db, analyzer):
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_base_analyzer] = lambda: analyzer
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
+    app.dependency_overrides[get_current_user] = lambda: _ADMIN_USER
     transport = ASGITransport(app=app)
     return AsyncClient(transport=transport, base_url="http://test")
 

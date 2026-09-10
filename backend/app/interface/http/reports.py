@@ -7,10 +7,14 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 
 from app.application.incidents.daily_report import DailyReport
-from app.interface.http.deps import get_daily_report
+from app.interface.http.deps import get_daily_report, require_role
 from app.interface.http.dto.response import DailyReportOut, ReportIncidentOut
 
-router = APIRouter(prefix="/api/reports", tags=["reports"])
+router = APIRouter(
+    prefix="/api/reports",
+    tags=["reports"],
+    dependencies=[Depends(require_role("admin", "sre", "consultant"))],
+)
 
 
 @router.get("/daily", response_model=DailyReportOut)

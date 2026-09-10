@@ -51,9 +51,11 @@ services:
       # (ado_connections table) rather than env vars — see infrastructure/tickets/ado_client.py.
       # --- CloudWatch alarm polling: encryption key for storing access keys ---
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
-      # --- Settings-page admin gate: single shared password, not per-user accounts ---
-      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
-      ADMIN_JWT_SECRET: ${ADMIN_JWT_SECRET:-}
+      # --- Per-user auth (JWT) + initial admin bootstrap ---
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
+      JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS:-28800}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iim}:${DB_PASSWORD:-iim}@db:5432/${POSTGRES_DB:-iim}
     depends_on:
       db:

@@ -5,7 +5,8 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
-class AdminLoginRequest(BaseModel):
-    """`POST /api/auth/admin-login` body."""
+class LoginRequest(BaseModel):
+    """`POST /api/auth/login` body."""
 
+    email: str = Field(min_length=1)
     password: str = Field(min_length=1)

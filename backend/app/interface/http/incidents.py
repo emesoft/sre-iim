@@ -40,6 +40,7 @@ from app.interface.http.deps import (
     get_ingest_incident,
     get_resolve_incident,
     get_unit_of_work,
+    require_role,
     resolve_background_incident_deps,
 )
 from app.interface.http.dto import mappers
@@ -58,10 +59,19 @@ from app.interface.http.dto.response import (
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-router = APIRouter(prefix="/api/incidents", tags=["incidents"])
+router = APIRouter(
+    prefix="/api/incidents",
+    tags=["incidents"],
+    dependencies=[Depends(require_role("admin", "sre", "consultant"))],
+)
 
 
-@router.post("", response_model=IncidentCreatedResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=IncidentCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def create_incident(
     body: IncidentIngestRequest,
     request: Request,
@@ -117,7 +127,11 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-@router.post("/{incident_id}/analyze", response_model=IncidentCreatedResponse)
+@router.post(
+    "/{incident_id}/analyze",
+    response_model=IncidentCreatedResponse,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def analyze_incident_now(
     incident_id: uuid.UUID,
     request: Request,
@@ -204,7 +218,11 @@ async def list_chat_messages(
     return [mappers.chat_message_out(m) for m in messages]
 
 
-@router.post("/{incident_id}/chat", response_model=ChatMessageOut)
+@router.post(
+    "/{incident_id}/chat",
+    response_model=ChatMessageOut,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def send_chat_message(
     incident_id: uuid.UUID,
     body: ChatMessageRequest,
@@ -264,7 +282,11 @@ async def get_incident(
     return mappers.incident_detail(incident, analysis, evidence)
 
 
-@router.post("/{incident_id}/resolve", response_model=IncidentDetail)
+@router.post(
+    "/{incident_id}/resolve",
+    response_model=IncidentDetail,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def resolve_incident(
     incident_id: uuid.UUID,
     body: ResolveIncidentRequest,
@@ -337,7 +359,11 @@ def _build_ticket_description(
     return "".join(parts)
 
 
-@router.post("/{incident_id}/ticket", response_model=IncidentDetail)
+@router.post(
+    "/{incident_id}/ticket",
+    response_model=IncidentDetail,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def create_incident_ticket(
     incident_id: uuid.UUID,
     repo: IncidentRepository = Depends(get_incident_repository),

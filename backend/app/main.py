@@ -18,6 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.resolve import ResolveIncident
+from app.application.users.manage import ManageUsers
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import get_settings
 from app.infrastructure.db.repositories import (
@@ -27,6 +28,7 @@ from app.infrastructure.db.repositories import (
     SqlAlchemyIncidentRepository,
     SqlAlchemyTrackedAlarmRepository,
     SqlAlchemyUnitOfWork,
+    SqlAlchemyUserRepository,
 )
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
@@ -42,6 +44,7 @@ from app.interface.http.incidents import router as incidents_router
 from app.interface.http.projects import router as projects_router
 from app.interface.http.reports import router as reports_router
 from app.interface.http.settings import router as settings_router
+from app.interface.http.users import router as users_router
 
 settings = get_settings()
 
@@ -77,8 +80,23 @@ async def _run_scheduled_poll() -> None:
         await job.run()
 
 
+async def _seed_initial_admin() -> None:
+    """If INITIAL_ADMIN_EMAIL/INITIAL_ADMIN_PASSWORD are set and no users exist yet, create the
+    first admin account — otherwise a fresh database has no way to log in at all. Safe to call on
+    every startup: it only acts when the `users` table is empty."""
+    if not settings.initial_admin_email or not settings.initial_admin_password:
+        return
+    async with SessionLocal() as session:
+        users = SqlAlchemyUserRepository(session)
+        if await users.list_all():
+            return
+        manager = ManageUsers(users=users, uow=SqlAlchemyUnitOfWork(session))
+        await manager.create(settings.initial_admin_email, settings.initial_admin_password, "admin")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    await _seed_initial_admin()
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         _run_scheduled_poll, "interval", minutes=settings.alarm_poll_interval_minutes,
@@ -114,6 +132,7 @@ app.include_router(ado_connections_router)
 app.include_router(projects_router)
 app.include_router(settings_router)
 app.include_router(auth_router)
+app.include_router(users_router)
 
 
 @app.get("/", tags=["meta"])

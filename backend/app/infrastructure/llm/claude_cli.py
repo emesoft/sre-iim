@@ -279,7 +279,7 @@ class ClaudeCliChat:
         # The MCP server subprocess is spawned BY `claude`, not by us. It only fetches logs
         # (mcp_log_tool.py / build_log_fetcher / CloudWatchLogFetcher), so it gets an explicit
         # allowlist of what that needs — not the full parent environment, which carries
-        # DATABASE_URL, SECRET_ENCRYPTION_KEY, ADMIN_JWT_SECRET, AWS creds, etc. that this
+        # DATABASE_URL, SECRET_ENCRYPTION_KEY, JWT_SECRET_KEY, AWS creds, etc. that this
         # subprocess has no business seeing.
         mcp_env = {
             key: value

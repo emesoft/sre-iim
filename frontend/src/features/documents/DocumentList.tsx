@@ -16,6 +16,7 @@ export function DocumentList({
   onRetry,
   onNew,
   onSelect,
+  canMutate,
 }: {
   rows: DocumentSummary[]
   loading: boolean
@@ -25,6 +26,7 @@ export function DocumentList({
   onRetry: () => void
   onNew: () => void
   onSelect: (id: string) => void
+  canMutate: boolean
 }) {
   const q = query.trim().toLowerCase()
   const filtered = q
@@ -50,9 +52,11 @@ export function DocumentList({
         title="No documents indexed"
         hint="Add a runbook, postmortem, or architecture note so the AI can retrieve and cite it during triage."
         action={
-          <Button onClick={onNew}>
-            <Plus size={16} /> New document
-          </Button>
+          canMutate ? (
+            <Button onClick={onNew}>
+              <Plus size={16} /> New document
+            </Button>
+          ) : undefined
         }
       />
     )

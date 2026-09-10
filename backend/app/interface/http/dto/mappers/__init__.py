@@ -11,6 +11,7 @@ from app.interface.http.dto.mappers.incident import (
     incident_summary,
 )
 from app.interface.http.dto.mappers.project import project_out
+from app.interface.http.dto.mappers.users import user_out
 
 __all__ = [
     "analysis_out",
@@ -23,4 +24,5 @@ __all__ = [
     "cloud_connection_out",
     "ado_connection_out",
     "project_out",
+    "user_out",
 ]

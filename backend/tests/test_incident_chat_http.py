@@ -2,6 +2,8 @@
 IncidentChat (no real subprocess) and get_session with a real Postgres session (iim_test)."""
 
 import os
+import uuid
+from datetime import datetime, timezone
 
 import pytest
 from fastapi import Depends
@@ -12,10 +14,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from app.domain.incidents.entities import ChatMessage
 from app.domain.incidents.ports import ChatRepository
 from app.domain.shared import UnitOfWork
+from app.domain.users.entities import User
 from app.infrastructure.config import Settings, get_settings
 from app.infrastructure.db.orm import Base, ChatMessageRow, ChatSessionRow, IncidentRow
 from app.interface.http.deps import (
     get_chat_repository,
+    get_current_user,
     get_incident_chat,
     get_session,
     get_unit_of_work,
@@ -23,6 +27,16 @@ from app.interface.http.deps import (
 from app.main import app
 
 pytestmark = pytest.mark.asyncio
+
+# POST .../chat is gated to admin/sre now that per-user auth exists — override get_current_user
+# with a fake admin so this suite exercises the chat use case, not the role gate.
+_ADMIN_USER = User(
+    id=uuid.uuid4(),
+    email="admin@test.local",
+    password_hash="unused",
+    role="admin",
+    created_at=datetime.now(timezone.utc),
+)
 
 _DB_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
     "DATABASE_URL", "postgresql+asyncpg://iim:iim@localhost:5432/iim"
@@ -82,6 +96,7 @@ async def client():
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_incident_chat] = _fake_incident_chat
+    app.dependency_overrides[get_current_user] = lambda: _ADMIN_USER
     # The endpoint 501s unless LLM_PROVIDER=claude_cli; force it regardless of the ambient
     # environment so this test exercises the chat business logic, not the provider gate.
     app.dependency_overrides[get_settings] = lambda: Settings(llm_provider="claude_cli")

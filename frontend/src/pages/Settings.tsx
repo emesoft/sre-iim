@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
+import { ShieldOff } from 'lucide-react'
 import { api, errText } from '../lib/api'
-import type { AdoConnection, CloudConnection, PollResult, PollSchedule, Project } from '../lib/types'
+import type { AdoConnection, CloudConnection, PollResult, PollSchedule, Project, Role } from '../lib/types'
 import { ProjectRegistry } from '../features/settings/ProjectRegistry'
 import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
 import { LlmUsageCard } from '../features/settings/LlmUsageCard'
-import { AdminGate } from '../features/settings/AdminGate'
 import { Button } from '../components/ui/Button'
+import { EmptyState } from '../components/ui/EmptyState'
 
 function pollResultText(result: PollResult): string {
   if (result.errors > 0) {
@@ -15,12 +16,19 @@ function pollResultText(result: PollResult): string {
   return `Refreshed ${result.polled} connection(s): ${result.alarm_count} alarm(s) active`
 }
 
-export function Settings() {
-  return (
-    <AdminGate>
-      <SettingsContent />
-    </AdminGate>
-  )
+export function Settings({ role }: { role: Role | null }) {
+  if (role !== 'admin') {
+    return (
+      <div className="flex h-full items-center justify-center p-8">
+        <EmptyState
+          icon={ShieldOff}
+          title="Insufficient permissions"
+          hint="Settings is admin-only. Ask an admin to change your role if you need access."
+        />
+      </div>
+    )
+  }
+  return <SettingsContent />
 }
 
 function SettingsContent() {

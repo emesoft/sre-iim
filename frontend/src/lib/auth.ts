@@ -1,33 +1,62 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { api, clearAuthToken, errText, getAuthToken, setAuthToken } from './api'
+import type { LoginResponse, Role, UserOut } from './types'
 
 /**
- * Frontend-only auth gate. There is no real backend auth yet (M6 is unbuilt), so this just
- * records "someone signed in" — the email they typed — in Web Storage and gates the dashboard on
- * its presence. "Remember me" picks the store: localStorage (survives restarts) vs sessionStorage
- * (cleared when the tab closes). Swap this for real OAuth/JWT when M6 lands.
+ * Real per-user auth: POSTs to `/api/auth/login`, stores the returned `{ token, user }` pair, and
+ * attaches the token to every subsequent request via `authHeaders()` in `api.ts`. "Remember me"
+ * still picks the store: localStorage (survives restarts) vs sessionStorage (cleared when the tab
+ * closes) — the token and the cached user object always live in the same store.
  */
-const AUTH_KEY = 'iim-auth'
+const USER_KEY = 'iim-auth-user'
 
-function readEmail(): string | null {
-  return localStorage.getItem(AUTH_KEY) ?? sessionStorage.getItem(AUTH_KEY)
+function readUser(): UserOut | null {
+  const raw = localStorage.getItem(USER_KEY) ?? sessionStorage.getItem(USER_KEY)
+  if (!raw) return null
+  try {
+    return JSON.parse(raw) as UserOut
+  } catch {
+    return null
+  }
 }
 
 export function useAuth() {
-  const [email, setEmail] = useState<string | null>(readEmail)
+  const [user, setUser] = useState<UserOut | null>(() => (getAuthToken() ? readUser() : null))
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const signIn = (userEmail: string, remember = true) => {
-    const value = userEmail.trim() || 'guest@iim.local'
-    // Keep one source of truth: clear the other store so remember-me semantics stay clean.
-    ;(remember ? sessionStorage : localStorage).removeItem(AUTH_KEY)
-    ;(remember ? localStorage : sessionStorage).setItem(AUTH_KEY, value)
-    setEmail(value)
+  // If the stored token has expired (or the user was deleted), a 401 from any call clears the
+  // token via api.ts's handle(); reconcile our local user state on the next render.
+  useEffect(() => {
+    if (!getAuthToken() && user) setUser(null)
+  })
+
+  const signIn = async (email: string, password: string, remember = true) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await api.post<LoginResponse>('/api/auth/login', { email, password })
+      setAuthToken(res.token, remember)
+      const value = JSON.stringify(res.user)
+      ;(remember ? sessionStorage : localStorage).removeItem(USER_KEY)
+      ;(remember ? localStorage : sessionStorage).setItem(USER_KEY, value)
+      setUser(res.user)
+    } catch (e) {
+      setError(errText(e))
+      throw e
+    } finally {
+      setLoading(false)
+    }
   }
 
   const signOut = () => {
-    localStorage.removeItem(AUTH_KEY)
-    sessionStorage.removeItem(AUTH_KEY)
-    setEmail(null)
+    clearAuthToken()
+    localStorage.removeItem(USER_KEY)
+    sessionStorage.removeItem(USER_KEY)
+    setUser(null)
   }
 
-  return { authed: email !== null, email, signIn, signOut }
+  const role: Role | null = user?.role ?? null
+
+  return { authed: user !== null, user, role, signIn, signOut, loading, error }
 }

@@ -9,6 +9,7 @@ from app.domain.cloud_connections.entities import CloudConnection, TrackedAlarm
 from app.domain.documents.entities import Document
 from app.domain.incidents.entities import Analysis, ChatMessage, ChatSession, Incident
 from app.domain.projects.entities import Project
+from app.domain.users.entities import User
 from app.infrastructure.db.orm import (
     AdoConnectionRow,
     AnalysisRow,
@@ -17,6 +18,7 @@ from app.infrastructure.db.orm import (
     DocumentRow,
     IncidentRow,
     ProjectRow,
+    UserRow,
 )
 
 
@@ -124,6 +126,16 @@ def chat_session_to_domain(row: ChatSessionRow) -> ChatSession:
 
 def project_to_domain(row: ProjectRow) -> Project:
     return Project(id=row.id, name=row.name, created_at=row.created_at)
+
+
+def user_to_domain(row: UserRow) -> User:
+    return User(
+        id=row.id,
+        email=row.email,
+        password_hash=row.password_hash,
+        role=row.role,
+        created_at=row.created_at,
+    )
 
 
 def ado_connection_to_domain(row: AdoConnectionRow) -> AdoConnection:

@@ -1,18 +1,22 @@
 import { LogOut, ShieldAlert } from 'lucide-react'
-import { NAV_SECTIONS, type View } from '../../lib/nav'
+import { navSectionsForRole, type View } from '../../lib/nav'
+import type { Role } from '../../lib/types'
 
 export function Sidebar({
   view,
   onNavigate,
   email,
+  role,
   onSignOut,
 }: {
   view: View
   onNavigate: (v: View) => void
   email: string | null
+  role: Role | null
   onSignOut: () => void
 }) {
   const initials = (email ?? '?').slice(0, 2).toUpperCase()
+  const sections = navSectionsForRole(role)
   return (
     <aside className="hidden w-64 shrink-0 flex-col bg-rail text-rail-text md:flex">
       {/* Brand */}
@@ -31,7 +35,7 @@ export function Sidebar({
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto px-3 py-1">
-        {NAV_SECTIONS.map((section) => (
+        {sections.map((section) => (
           <div key={section.heading} className="mb-5">
             <div className="px-3 pb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-rail-dim">
               {section.heading}
@@ -59,22 +63,6 @@ export function Sidebar({
                   </button>
                 )
               })}
-              {section.soon?.map((item) => {
-                const Icon = item.icon
-                return (
-                  <div
-                    key={item.label}
-                    className="flex cursor-not-allowed items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-rail-dim"
-                    title="Planned — not built yet"
-                  >
-                    <Icon size={18} strokeWidth={2} />
-                    <span className="flex-1">{item.label}</span>
-                    <span className="rounded-full bg-white/[0.06] px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide">
-                      Soon
-                    </span>
-                  </div>
-                )
-              })}
             </div>
           </div>
         ))}
@@ -91,7 +79,7 @@ export function Sidebar({
           </span>
           <div className="min-w-0 flex-1 leading-tight">
             <div className="truncate text-sm font-semibold text-white">{email}</div>
-            <div className="text-[11px] font-medium text-rail-dim">Signed in</div>
+            <div className="text-[11px] font-medium capitalize text-rail-dim">{role ?? 'Signed in'}</div>
           </div>
         </div>
         <button

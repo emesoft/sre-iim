@@ -8,12 +8,14 @@ export function Incidents({
   selectedId,
   onSelect,
   onRetry,
+  canMutate,
 }: {
   data: DashboardData
   query: string
   selectedId: string | null
   onSelect: (id: string) => void
   onRetry: () => void
+  canMutate: boolean
 }) {
   return (
     <div className="grid h-full grid-cols-[minmax(260px,340px)_1fr] overflow-hidden">
@@ -30,7 +32,7 @@ export function Incidents({
         />
       </aside>
       <section className="min-h-0 overflow-y-auto">
-        <IncidentDetail incidentId={selectedId} onSelectIncident={onSelect} />
+        <IncidentDetail incidentId={selectedId} onSelectIncident={onSelect} canMutate={canMutate} />
       </section>
     </div>
   )

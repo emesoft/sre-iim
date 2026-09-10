@@ -8,6 +8,7 @@ fakes at all.
 
 import os
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +16,7 @@ from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domain.cloud_connections.entities import AlarmState
+from app.domain.users.entities import User
 from app.infrastructure.db.orm import (
     AdoConnectionRow,
     AnalysisCacheRow,
@@ -26,8 +28,16 @@ from app.infrastructure.db.orm import (
     TrackedAlarmRow,
 )
 from app.infrastructure.security.encryptor import Encryptor
-from app.interface.http.deps import get_alarm_fetcher, get_encryptor, get_session, require_admin
+from app.interface.http.deps import get_alarm_fetcher, get_current_user, get_encryptor, get_session
 from app.main import app
+
+_ADMIN_USER = User(
+    id=uuid.uuid4(),
+    email="admin@test.local",
+    password_hash="unused",
+    role="admin",
+    created_at=datetime.now(timezone.utc),
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -80,7 +90,7 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_alarm_fetcher] = lambda: _FakeFetcher()
     app.dependency_overrides[get_encryptor] = lambda: Encryptor(_TEST_ENCRYPTION_KEY)
-    app.dependency_overrides[require_admin] = lambda: None
+    app.dependency_overrides[get_current_user] = lambda: _ADMIN_USER
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

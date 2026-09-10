@@ -83,12 +83,18 @@ class Settings(BaseSettings):
     secret_encryption_key: str = ""  # Fernet key (44-char urlsafe base64); required to store access keys
     alarm_poll_interval_minutes: int = 60
 
-    # --- Settings-page admin gate ---
-    # A single shared password (not a per-user account system) — gates /api/cloud-connections/*
-    # and /api/settings/* (AWS connections + the claude_cli token). admin_jwt_secret signs the
-    # session token issued on successful login; unset means the gate can never issue a valid one.
-    admin_password: str | None = None
-    admin_jwt_secret: str = ""
+    # --- Per-user auth (JWT) ---
+    # Replaces the old single-shared-password admin gate: every request now carries a per-user
+    # JWT (see infrastructure/security/jwt.py) issued by POST /api/auth/login. Unset
+    # jwt_secret_key means no token can ever be issued or verified (fail closed, not open).
+    jwt_secret_key: str = ""
+    jwt_access_token_ttl_seconds: int = 28800  # 8 hours
+
+    # --- Initial admin bootstrap ---
+    # If set and the `users` table is empty at startup, main.py's lifespan creates the first admin
+    # account — otherwise there would be no way to log in at all on a fresh database.
+    initial_admin_email: str | None = None
+    initial_admin_password: str | None = None
 
     @property
     def cors_origins_list(self) -> list[str]:

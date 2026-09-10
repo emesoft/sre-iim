@@ -1,7 +1,7 @@
 """Outbound response DTOs, one module per resource."""
 
 from app.interface.http.dto.response.ado_connection import AdoConnectionOut
-from app.interface.http.dto.response.auth import AdminLoginResponse
+from app.interface.http.dto.response.auth import LoginResponse, UserOut
 from app.interface.http.dto.response.cloud_connection import (
     CloudConnectionOut,
     PollResult,
@@ -50,5 +50,6 @@ __all__ = [
     "SettingStatus",
     "LlmUsageOut",
     "UsageByModelOut",
-    "AdminLoginResponse",
+    "LoginResponse",
+    "UserOut",
 ]

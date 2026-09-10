@@ -5,7 +5,13 @@ import type { ChatMessageOut, IncidentDetail } from '../../lib/types'
 import { Card } from '../../components/ui/Card'
 import { Button } from '../../components/ui/Button'
 
-export function ChatPanel({ incident }: { incident: IncidentDetail }) {
+export function ChatPanel({
+  incident,
+  canChat,
+}: {
+  incident: IncidentDetail
+  canChat: boolean
+}) {
   const [messages, setMessages] = useState<ChatMessageOut[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(true)
@@ -93,18 +99,22 @@ export function ChatPanel({ incident }: { incident: IncidentDetail }) {
 
       {err && <p className="mt-2 text-sm text-sev-critical">{err}</p>}
 
-      <form onSubmit={send} className="mt-3 flex items-center gap-2">
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask about this incident…"
-          disabled={sending}
-          className="flex-1 rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
-        />
-        <Button type="submit" disabled={sending || !input.trim()}>
-          <Send size={15} /> Send
-        </Button>
-      </form>
+      {canChat ? (
+        <form onSubmit={send} className="mt-3 flex items-center gap-2">
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            placeholder="Ask about this incident…"
+            disabled={sending}
+            className="flex-1 rounded-xl border border-hair bg-surface-2 px-3 py-2 text-sm text-ink outline-none focus:border-accent"
+          />
+          <Button type="submit" disabled={sending || !input.trim()}>
+            <Send size={15} /> Send
+          </Button>
+        </form>
+      ) : (
+        <p className="mt-3 text-xs text-muted">Read-only access — chat is available to admin/sre.</p>
+      )}
     </Card>
   )
 }

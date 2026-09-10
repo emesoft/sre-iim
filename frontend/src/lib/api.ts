@@ -2,27 +2,31 @@
 // paths, which Vite proxies to :8000 in dev. Non-2xx responses throw an ApiError
 // carrying the backend's `detail` string so the UI can surface 422 validation messages.
 
-const ADMIN_TOKEN_STORAGE_KEY = 'iim_admin_token'
+// The one session token for the whole app — set on successful login (lib/auth.ts), sent as
+// `Authorization: Bearer <token>` on every request, cleared on sign-out or a 401.
+const AUTH_TOKEN_STORAGE_KEY = 'iim_auth_token'
 
-export function getAdminToken(): string | null {
+export function getAuthToken(): string | null {
   try {
-    return localStorage.getItem(ADMIN_TOKEN_STORAGE_KEY)
+    return localStorage.getItem(AUTH_TOKEN_STORAGE_KEY) ?? sessionStorage.getItem(AUTH_TOKEN_STORAGE_KEY)
   } catch {
     return null // private-browsing / storage blocked — treat as logged out
   }
 }
 
-export function setAdminToken(token: string): void {
+export function setAuthToken(token: string, remember = true): void {
   try {
-    localStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token)
+    ;(remember ? sessionStorage : localStorage).removeItem(AUTH_TOKEN_STORAGE_KEY)
+    ;(remember ? localStorage : sessionStorage).setItem(AUTH_TOKEN_STORAGE_KEY, token)
   } catch {
-    // storage blocked — nothing we can do, the gate will just re-prompt next load
+    // storage blocked — nothing we can do, the app will just re-prompt next load
   }
 }
 
-export function clearAdminToken(): void {
+export function clearAuthToken(): void {
   try {
-    localStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY)
+    localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
+    sessionStorage.removeItem(AUTH_TOKEN_STORAGE_KEY)
   } catch {
     // ignore
   }
@@ -39,7 +43,7 @@ export class ApiError extends Error {
 }
 
 function authHeaders(): Record<string, string> {
-  const token = getAdminToken()
+  const token = getAuthToken()
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
@@ -52,7 +56,7 @@ async function handle<T>(res: Response): Promise<T> {
     body = null // non-JSON error page (e.g. proxy 500) — fall back to status text
   }
   if (!res.ok) {
-    if (res.status === 401) clearAdminToken() // stale/expired admin session — force re-login
+    if (res.status === 401) clearAuthToken() // stale/expired session — force re-login
     const detail =
       body && typeof body === 'object' && 'detail' in body
         ? typeof (body as { detail: unknown }).detail === 'string'

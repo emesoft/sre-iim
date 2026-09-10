@@ -9,13 +9,15 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.ado_connections.manage import ManageAdoConnections
 from app.domain.projects.errors import UnknownProjectError
-from app.interface.http.deps import get_manage_ado_connections, require_admin
+from app.interface.http.deps import get_manage_ado_connections, require_role
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import AdoConnectionCreateRequest
 from app.interface.http.dto.response import AdoConnectionOut, TestConnectionResult
 
 router = APIRouter(
-    prefix="/api/ado-connections", tags=["ado-connections"], dependencies=[Depends(require_admin)]
+    prefix="/api/ado-connections",
+    tags=["ado-connections"],
+    dependencies=[Depends(require_role("admin"))],
 )
 
 

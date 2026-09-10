@@ -11,7 +11,7 @@ from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
 from app.domain.projects.errors import UnknownProjectError
 from app.infrastructure.config import Settings, get_settings
-from app.interface.http.deps import get_manage_cloud_connections, get_poll_alarms_job, require_admin
+from app.interface.http.deps import get_manage_cloud_connections, get_poll_alarms_job, require_role
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import CloudConnectionCreateRequest
 from app.interface.http.dto.response import (
@@ -22,7 +22,9 @@ from app.interface.http.dto.response import (
 )
 
 router = APIRouter(
-    prefix="/api/cloud-connections", tags=["cloud-connections"], dependencies=[Depends(require_admin)]
+    prefix="/api/cloud-connections",
+    tags=["cloud-connections"],
+    dependencies=[Depends(require_role("admin"))],
 )
 
 _AUTH_TYPES = {"sso", "access_key"}

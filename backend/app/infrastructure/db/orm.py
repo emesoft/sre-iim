@@ -127,12 +127,17 @@ class DocChunkRow(Base):
 
 
 class UserRow(Base):
+    """A per-user account (email + password) with a role: admin | sre | consultant. Was an
+    orphaned OAuth-shaped table (email/name/provider, no password/role) until per-user login was
+    built — see `.claude/plans` for the auth/RBAC design."""
+
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     email: Mapped[str] = mapped_column(Text, unique=True, nullable=False)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
-    provider: Mapped[str] = mapped_column(Text, nullable=False)  # google | microsoft
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False, default="consultant")
     created_at: Mapped[datetime] = _utcnow_column()
 
 

@@ -7,6 +7,7 @@ when no database is reachable.
 
 import os
 import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
@@ -15,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domain.ado_connections.entities import AdoConnection
 from app.domain.incidents.entities import AnalysisDraft
+from app.domain.users.entities import User
 from app.infrastructure.db.orm import (
     EMBED_DIM,
     AnalysisCacheRow,
@@ -28,11 +30,23 @@ from app.interface.http.deps import (
     get_ado_connection_repository,
     get_ado_ticket_client_factory,
     get_base_analyzer,
+    get_current_user,
     get_embedder,
     get_session,
 )
 from app.main import app
 from tests.sse_test_utils import iter_sse
+
+# incidents.py is gated (require_role) now that per-user auth exists — override get_current_user
+# with a fake admin so these tests exercise the incident workflow itself, not the role gate (that's
+# covered by test_auth_http.py / test_users_http.py).
+_ADMIN_USER = User(
+    id=uuid.uuid4(),
+    email="admin@test.local",
+    password_hash="unused",
+    role="admin",
+    created_at=datetime.now(timezone.utc),
+)
 
 pytestmark = pytest.mark.asyncio
 
@@ -111,6 +125,7 @@ async def client():
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
     app.dependency_overrides[get_ado_connection_repository] = lambda: _FakeAdoConnectionRepo()
+    app.dependency_overrides[get_current_user] = lambda: _ADMIN_USER
     app.dependency_overrides[get_ado_ticket_client_factory] = lambda: (
         lambda connection: _FakeTicketClient()
     )

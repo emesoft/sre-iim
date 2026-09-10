@@ -22,6 +22,7 @@ from app.interface.http.deps import (
     get_seed_default_documents,
     get_unit_of_work,
     get_update_document,
+    require_role,
 )
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import DocumentIngestRequest
@@ -32,10 +33,19 @@ from app.interface.http.dto.response import (
     SeedDocumentsResponse,
 )
 
-router = APIRouter(prefix="/api/documents", tags=["documents"])
+router = APIRouter(
+    prefix="/api/documents",
+    tags=["documents"],
+    dependencies=[Depends(require_role("admin", "sre", "consultant"))],
+)
 
 
-@router.post("", response_model=DocumentCreatedResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=DocumentCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def create_document(
     body: DocumentIngestRequest,
     ingest: IngestDocument = Depends(get_ingest_document),
@@ -61,7 +71,11 @@ async def create_document(
     return DocumentCreatedResponse(document_id=document.id, chunks=chunks)
 
 
-@router.post("/seed", response_model=SeedDocumentsResponse)
+@router.post(
+    "/seed",
+    response_model=SeedDocumentsResponse,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def seed_documents(
     seed: SeedDefaultDocuments = Depends(get_seed_default_documents),
 ) -> SeedDocumentsResponse:
@@ -93,7 +107,11 @@ async def get_document(
     return mappers.document_detail(document, chunks)
 
 
-@router.patch("/{document_id}", response_model=DocumentDetail)
+@router.patch(
+    "/{document_id}",
+    response_model=DocumentDetail,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def update_document(
     document_id: uuid.UUID,
     body: DocumentIngestRequest,
@@ -124,7 +142,11 @@ async def update_document(
     return mappers.document_detail(document, chunks)
 
 
-@router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[Depends(require_role("admin", "sre"))],
+)
 async def delete_document(
     document_id: uuid.UUID,
     repo: DocumentRepository = Depends(get_document_repository),

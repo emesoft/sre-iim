@@ -78,14 +78,20 @@ JINA_API_KEY=jina_...                # lấy free tại jina.ai/embeddings
 # --- Mã hóa secrets (AWS access key, ADO PAT, Claude Code token đều lưu mã hóa trong DB) ---
 SECRET_ENCRYPTION_KEY=               # sinh bằng: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 
-# --- Password admin để vào trang Settings (1 password dùng chung) ---
-ADMIN_PASSWORD=                      # tự đặt
-ADMIN_JWT_SECRET=                    # sinh bằng: python -c "import secrets; print(secrets.token_urlsafe(32))"
+# --- Per-user login (JWT) ---
+JWT_SECRET_KEY=                      # sinh bằng: python -c "import secrets; print(secrets.token_urlsafe(32))"
+JWT_ACCESS_TOKEN_TTL_SECONDS=28800   # 8 giờ
+
+# --- Tài khoản admin đầu tiên (chỉ tạo nếu bảng users đang rỗng) ---
+INITIAL_ADMIN_EMAIL=                 # vd: admin@example.com
+INITIAL_ADMIN_PASSWORD=              # tự đặt
 ```
 
-`SECRET_ENCRYPTION_KEY` và `ADMIN_PASSWORD`/`ADMIN_JWT_SECRET` là **bắt buộc** — thiếu thì trang
-Settings và mọi thao tác lưu secret (AWS connection, ADO PAT, Claude Code token) sẽ báo lỗi 503/500
-thay vì hoạt động.
+`SECRET_ENCRYPTION_KEY` và `JWT_SECRET_KEY` là **bắt buộc** — thiếu thì trang Settings/Users và mọi
+thao tác lưu secret (AWS connection, ADO PAT, Claude Code token) sẽ báo lỗi 503/500 thay vì hoạt
+động. `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` là bắt buộc trên một database mới — không có
+chúng thì không có cách nào đăng nhập lần đầu (mỗi user giờ là một tài khoản email/mật khẩu thật,
+không còn 1 password admin dùng chung nữa).
 
 ## 4. Khởi động stack
 
@@ -112,7 +118,8 @@ claude setup-token
 
 Lệnh này mở trình duyệt đăng nhập Claude Code, in ra một token. Copy token đó, vào app:
 
-**Settings** → nhập `ADMIN_PASSWORD` → mục **Claude Code token** → dán token → **Save**.
+Đăng nhập bằng `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` ở trên → **Settings** → mục **Claude
+Code token** → dán token → **Save**.
 
 Token được mã hóa và lưu trong Postgres, không lưu ở `.env`. Nếu quên bước này, mọi incident sẽ
 phân tích **failed** với thông báo "Claude Code token is not configured" — đây chính là trạng thái
@@ -305,7 +312,8 @@ digest tự sinh số lượng theo severity + narrative → **Copy for Slack**.
 | "Create ADO ticket" báo lỗi 422 "No Azure DevOps project configured" | chưa thêm ADO connection cho đúng project | vào Settings → Projects thêm ADO cho project đó (mục 7) |
 | "Create ADO ticket" báo 502 kèm message ADO | PAT hết hạn / thiếu quyền / work item type sai | kiểm tra lại PAT và Work item type ở Settings, bấm Test |
 | Bấm Create ADO ticket lần 2 báo 409 | incident đã có ticket rồi (đúng hành vi, chặn tạo trùng) | dùng link ticket cũ trong thông báo lỗi |
-| Trang Settings báo lỗi 503 | thiếu `ADMIN_PASSWORD`/`ADMIN_JWT_SECRET` trong `.env` | thêm vào `.env`, `docker compose up -d --build backend` |
+| Trang Settings/Users báo lỗi 503 | thiếu `JWT_SECRET_KEY` trong `.env` | thêm vào `.env`, `docker compose up -d --build backend` |
+| Không đăng nhập được lần đầu trên DB mới | thiếu `INITIAL_ADMIN_EMAIL`/`INITIAL_ADMIN_PASSWORD` trong `.env` khi bảng users còn rỗng | thêm vào `.env`, `docker compose up -d --build backend` (chỉ seed khi bảng users rỗng) |
 | Lưu AWS connection/ADO/Claude token báo lỗi 500 | thiếu `SECRET_ENCRYPTION_KEY` | thêm vào `.env`, rebuild backend |
 | Muốn diễn lại từ đầu, dữ liệu cũ còn trong DB | — | `docker compose down -v && docker compose up --build` (mất hết dữ liệu, kể cả Knowledge Base — cần bấm lại "Load default runbooks") |
 

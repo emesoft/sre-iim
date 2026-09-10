@@ -15,11 +15,13 @@ export function DocumentDetailModal({
   documentId,
   onClose,
   onChanged,
+  canMutate,
 }: {
   documentId: string | null
   onClose: () => void
   /** Called after a save or delete — the caller re-fetches the document list. */
   onChanged: () => void
+  canMutate: boolean
 }) {
   const [doc, setDoc] = useState<DocumentDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -112,16 +114,18 @@ export function DocumentDetailModal({
           <pre className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap rounded-lg bg-plane p-3 text-sm text-ink-2">
             {doc.content}
           </pre>
-          <div className="flex justify-end gap-2">
-            <Button variant="ghost" disabled={busy} onClick={remove}>
-              Delete
-            </Button>
-            <Button onClick={startEdit}>Edit</Button>
-          </div>
+          {canMutate && (
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" disabled={busy} onClick={remove}>
+                Delete
+              </Button>
+              <Button onClick={startEdit}>Edit</Button>
+            </div>
+          )}
         </div>
       )}
 
-      {doc && editing && (
+      {doc && editing && canMutate && (
         <div className="flex flex-col gap-3">
           <Field label="Title">
             <input className={inputCls} value={title} onChange={(e) => setTitle(e.target.value)} />

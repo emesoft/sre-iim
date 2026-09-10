@@ -4,14 +4,17 @@ Skipped when no database is reachable.
 """
 
 import os
+import uuid
+from datetime import datetime, timezone
 
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
+from app.domain.users.entities import User
 from app.infrastructure.db.orm import EMBED_DIM, Base, DocChunkRow, DocumentRow
-from app.interface.http.deps import get_embedder, get_session
+from app.interface.http.deps import get_current_user, get_embedder, get_session
 from app.main import app
 
 pytestmark = pytest.mark.asyncio
@@ -20,6 +23,16 @@ _DB_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
     "DATABASE_URL", "postgresql+asyncpg://iim:iim@localhost:5432/iim"
 )
 _DIM = EMBED_DIM
+
+# documents.py is gated (require_role) now that per-user auth exists — override get_current_user
+# with a fake admin so these tests exercise document ingest/CRUD, not the role gate.
+_ADMIN_USER = User(
+    id=uuid.uuid4(),
+    email="admin@test.local",
+    password_hash="unused",
+    role="admin",
+    created_at=datetime.now(timezone.utc),
+)
 
 
 class _FakeEmbedder:
@@ -53,6 +66,7 @@ async def client():
 
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
+    app.dependency_overrides[get_current_user] = lambda: _ADMIN_USER
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as c:

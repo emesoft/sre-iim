@@ -9,12 +9,14 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.projects.manage import ManageProjects
 from app.domain.projects.errors import ProjectInUseError, ProjectNameTakenError
-from app.interface.http.deps import get_manage_projects, require_admin
+from app.interface.http.deps import get_manage_projects, require_role
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import ProjectCreateRequest
 from app.interface.http.dto.response import ProjectOut
 
-router = APIRouter(prefix="/api/projects", tags=["projects"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/projects", tags=["projects"], dependencies=[Depends(require_role("admin"))]
+)
 
 
 @router.post("", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)

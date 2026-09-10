@@ -3,34 +3,30 @@ import {
   BookOpen,
   ClipboardList,
   LayoutDashboard,
-  Server,
   Settings,
   Users,
   type LucideIcon,
 } from 'lucide-react'
+import type { Role } from './types'
 
-export type View = 'overview' | 'incidents' | 'knowledge' | 'reports' | 'settings'
+export type View = 'overview' | 'incidents' | 'knowledge' | 'reports' | 'settings' | 'users'
 
 export interface NavItem {
   view: View
   label: string
   icon: LucideIcon
-}
-
-export interface SoonItem {
-  label: string
-  icon: LucideIcon
+  /** Roles that can see this nav entry. Omit to show it to everyone signed in. */
+  roles?: Role[]
 }
 
 export interface NavSection {
   heading: string
   items: NavItem[]
-  soon?: SoonItem[]
 }
 
 /**
- * Sidebar structure. `items` are wired to real endpoints; `soon` entries are
- * honest placeholders for the wider project vision, shown disabled.
+ * Sidebar structure. Every item is wired to a real view; `roles` restricts an item to specific
+ * roles (e.g. Settings/Users are admin-only) — see `navSectionsForRole`.
  */
 export const NAV_SECTIONS: NavSection[] = [
   {
@@ -47,13 +43,20 @@ export const NAV_SECTIONS: NavSection[] = [
   },
   {
     heading: 'System',
-    items: [{ view: 'settings', label: 'Settings', icon: Settings }],
-    soon: [
-      { label: 'Services', icon: Server },
-      { label: 'Team', icon: Users },
+    items: [
+      { view: 'settings', label: 'Settings', icon: Settings, roles: ['admin'] },
+      { view: 'users', label: 'Users', icon: Users, roles: ['admin'] },
     ],
   },
 ]
+
+/** Filters `NAV_SECTIONS` down to the items a given role may see, dropping empty sections. */
+export function navSectionsForRole(role: Role | null): NavSection[] {
+  return NAV_SECTIONS.map((section) => ({
+    ...section,
+    items: section.items.filter((item) => !item.roles || (role !== null && item.roles.includes(role))),
+  })).filter((section) => section.items.length > 0)
+}
 
 export const VIEW_META: Record<View, { title: string; subtitle: string }> = {
   overview: {
@@ -75,5 +78,9 @@ export const VIEW_META: Record<View, { title: string; subtitle: string }> = {
   settings: {
     title: 'Settings',
     subtitle: 'AWS connections used to poll CloudWatch alarms into incidents',
+  },
+  users: {
+    title: 'Users',
+    subtitle: 'Manage accounts and roles for this console',
   },
 }

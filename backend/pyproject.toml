@@ -26,6 +26,9 @@ dependencies = [
     # MCP stdio server for the incident-chat fetch_logs tool (design spec 2026-08-23) — spawned by
     # `claude -p --mcp-config` as a short-lived subprocess per chat turn.
     "mcp>=1.2,<2",
+    # Per-user auth (JWT access tokens + bcrypt password hashing).
+    "pyjwt>=2.9",
+    "bcrypt>=4.2",
 ]
 
 [dependency-groups]

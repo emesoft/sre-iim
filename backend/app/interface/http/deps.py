@@ -7,7 +7,8 @@ a disposable DB without calling Bedrock.
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+import uuid
+from collections.abc import AsyncGenerator, AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -16,6 +17,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.application.ado_connections.manage import ManageAdoConnections
+from app.application.auth.login import Login
 from app.application.cloud_connections.manage import ManageCloudConnections
 from app.application.cloud_connections.poll_alarms import PollAlarmsJob
 from app.application.documents.ingest import IngestDocument, UpdateDocument
@@ -26,6 +28,7 @@ from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.rag_analyzer import RagAnalyzer
 from app.application.incidents.resolve import ResolveIncident
 from app.application.projects.manage import ManageProjects
+from app.application.users.manage import ManageUsers
 from app.domain.ado_connections.entities import AdoConnection
 from app.domain.ado_connections.ports import AdoConnectionRepository
 from app.domain.cloud_connections.ports import AlarmFetcher, CloudConnectionRepository
@@ -39,6 +42,8 @@ from app.domain.incidents.ports import (
 )
 from app.domain.llm import ChatModel
 from app.domain.projects.ports import ProjectRepository
+from app.domain.users.entities import User
+from app.domain.users.ports import UserRepository
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
 from app.infrastructure.cloud.credential_resolver import CredentialResolver
@@ -55,6 +60,7 @@ from app.infrastructure.db.repositories import (
     SqlAlchemyRetriever,
     SqlAlchemyTrackedAlarmRepository,
     SqlAlchemyUnitOfWork,
+    SqlAlchemyUserRepository,
 )
 from app.infrastructure.db.session import SessionLocal
 from app.infrastructure.events import IncidentEventBus, default_bus
@@ -66,8 +72,8 @@ from app.infrastructure.llm.deepseek_analyzer import DeepSeekAnalyzer
 from app.infrastructure.llm.jina_embedder import JinaEmbedder
 from app.infrastructure.llm.titan_embedder import TitanEmbedder
 from app.infrastructure.logs.factory import build_log_fetcher
-from app.infrastructure.security.admin_auth import verify_admin_token
 from app.infrastructure.security.encryptor import Encryptor
+from app.infrastructure.security.jwt import InvalidTokenError, decode_access_token
 from app.infrastructure.tickets.ado_client import AdoTicketClient
 
 if TYPE_CHECKING:
@@ -309,24 +315,71 @@ async def resolve_background_incident_deps(app: "FastAPI") -> AsyncIterator[Back
         )
 
 
-def require_admin(
-    authorization: str | None = Header(default=None), settings: Settings = Depends(get_settings)
-) -> None:
-    """Gate for the Settings-page endpoints (cloud connections + the Claude Code token) — a single
-    shared admin password, not a per-user account system. Raises 401 on any missing/invalid/
-    expired token so FastAPI never resolves the route body; 503 if ADMIN_JWT_SECRET is unset — a
-    server misconfiguration, not a login failure, and admin_auth.verify_admin_token would
-    otherwise silently reject every token, masking the real problem as "wrong session"."""
-    if not settings.admin_jwt_secret:
+def get_user_repository(session: AsyncSession = Depends(get_session)) -> UserRepository:
+    return SqlAlchemyUserRepository(session)
+
+
+def get_login(
+    users: UserRepository = Depends(get_user_repository),
+    settings: Settings = Depends(get_settings),
+) -> Login:
+    return Login(
+        users=users,
+        jwt_secret=settings.jwt_secret_key,
+        jwt_ttl_seconds=settings.jwt_access_token_ttl_seconds,
+    )
+
+
+def get_manage_users(
+    users: UserRepository = Depends(get_user_repository),
+    uow: SqlAlchemyUnitOfWork = Depends(get_unit_of_work),
+) -> ManageUsers:
+    return ManageUsers(users=users, uow=uow)
+
+
+async def get_current_user(
+    authorization: str | None = Header(default=None),
+    settings: Settings = Depends(get_settings),
+    users: UserRepository = Depends(get_user_repository),
+) -> User:
+    """Per-user auth gate, replacing the old shared-password `require_admin`. Parses
+    `Authorization: Bearer <token>`, decodes/verifies it, and loads the user it names. 401 on any
+    missing/invalid/expired token or a token naming a user that no longer exists — never a 500,
+    so a bad/forged/stale token always reads as "please log in again"."""
+    if not settings.jwt_secret_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="admin gate is misconfigured: ADMIN_JWT_SECRET is not set",
+            detail="auth is misconfigured: JWT_SECRET_KEY is not set",
         )
     token = None
     if authorization and authorization.startswith("Bearer "):
         token = authorization.removeprefix("Bearer ")
-    if not token or not verify_admin_token(token, settings.admin_jwt_secret):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="admin login required")
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
+    try:
+        claims = decode_access_token(token, settings.jwt_secret_key)
+    except InvalidTokenError as exc:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required") from exc
+    user = await users.get_by_id(uuid.UUID(claims["sub"]))
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="login required")
+    return user
+
+
+def require_role(*roles: str) -> Callable[..., Awaitable[User]]:
+    """Dependency factory: 403 if the current user's role isn't one of `roles`. Used both at
+    router level (e.g. `require_role("admin", "sre", "consultant")` — must be logged in) and on
+    individual mutating routes (e.g. `require_role("admin", "sre")` — read-only for consultants)."""
+
+    async def _check(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"requires role in {list(roles)}",
+            )
+        return current_user
+
+    return _check
 
 
 def get_encryptor() -> Encryptor:

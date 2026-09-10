@@ -19,7 +19,7 @@ from app.interface.http.deps import (
     get_encryptor,
     get_incident_repository,
     get_unit_of_work,
-    require_admin,
+    require_role,
 )
 from app.interface.http.dto.request import SetTokenRequest
 from app.interface.http.dto.response import (
@@ -29,7 +29,9 @@ from app.interface.http.dto.response import (
     UsageByModelOut,
 )
 
-router = APIRouter(prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_admin)])
+router = APIRouter(
+    prefix="/api/settings", tags=["settings"], dependencies=[Depends(require_role("admin"))]
+)
 
 
 @router.get("/claude-token", response_model=SettingStatus)

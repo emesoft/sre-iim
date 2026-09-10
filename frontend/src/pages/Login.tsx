@@ -1,30 +1,7 @@
 import { useState } from 'react'
 import { Eye, EyeOff, ShieldAlert } from 'lucide-react'
+import { errText } from '../lib/api'
 import { Button } from '../components/ui/Button'
-
-/** Google's 4-colour "G" mark, inlined so the dark sign-in button needs no asset. */
-function GoogleMark() {
-  return (
-    <svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true">
-      <path
-        fill="#FFC107"
-        d="M43.6 20.5H42V20H24v8h11.3c-1.6 4.7-6.1 8-11.3 8-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.5-.4-3.5z"
-      />
-      <path
-        fill="#FF3D00"
-        d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"
-      />
-      <path
-        fill="#4CAF50"
-        d="M24 44c5.5 0 10.5-2.1 14.3-5.5l-6.6-5.6C29.7 34.5 27 35.5 24 35.5c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"
-      />
-      <path
-        fill="#1976D2"
-        d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.3 5.6l6.6 5.6C41.4 36.7 44 31.1 44 24c0-1.3-.1-2.5-.4-3.5z"
-      />
-    </svg>
-  )
-}
 
 const inputClass =
   'w-full rounded-xl border border-transparent bg-surface-2 px-4 py-3 text-sm text-ink ' +
@@ -50,19 +27,32 @@ function LogoChip({ size = 40 }: { size?: number }) {
 /**
  * The sign-in screen — a full-bleed, macOS-style split. Left: a dark-indigo panel carrying the
  * IIM identity and its thesis. Right: the sign-in form, held to a readable column. Both halves fill
- * the viewport; below `md` the brand panel drops away and the form stands alone. Auth is a frontend
- * gate (see auth.ts), so any credentials sign in; `onSignIn` hands the email + remember-me choice
- * back to the app.
+ * the viewport; below `md` the brand panel drops away and the form stands alone. `onSignIn` calls
+ * the real `POST /api/auth/login` (see lib/auth.ts) and rejects on bad credentials.
  */
-export function Login({ onSignIn }: { onSignIn: (email: string, remember: boolean) => void }) {
+export function Login({
+  onSignIn,
+}: {
+  onSignIn: (email: string, password: string, remember: boolean) => Promise<void>
+}) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
   const [show, setShow] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
-  const submit = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onSignIn(email, remember)
+    setError(null)
+    setSubmitting(true)
+    try {
+      await onSignIn(email, password, remember)
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -129,6 +119,7 @@ export function Login({ onSignIn }: { onSignIn: (email: string, remember: boolea
                 id="email"
                 type="email"
                 autoComplete="username"
+                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@emesoft.net"
@@ -145,6 +136,7 @@ export function Login({ onSignIn }: { onSignIn: (email: string, remember: boolea
                   id="password"
                   type={show ? 'text' : 'password'}
                   autoComplete="current-password"
+                  required
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Enter password"
@@ -180,43 +172,14 @@ export function Login({ onSignIn }: { onSignIn: (email: string, remember: boolea
                 </button>
                 <span className="text-sm text-ink-2">Remember me</span>
               </label>
-              <button
-                type="button"
-                className="text-sm font-semibold text-accent transition hover:text-accent-strong"
-              >
-                Forgot password?
-              </button>
             </div>
 
-            <Button type="submit" className="w-full py-3">
-              Sign in
+            {error && <p className="text-sm text-sev-critical">{error}</p>}
+
+            <Button type="submit" className="w-full py-3" disabled={submitting}>
+              {submitting ? 'Signing in…' : 'Sign in'}
             </Button>
           </form>
-
-          <div className="my-6 flex items-center gap-3 text-xs font-medium text-muted">
-            <span className="h-px flex-1 bg-hair" />
-            or
-            <span className="h-px flex-1 bg-hair" />
-          </div>
-
-          <button
-            type="button"
-            onClick={() => onSignIn(email, remember)}
-            className="flex w-full items-center justify-center gap-2.5 rounded-2xl bg-rail px-3.5 py-3 text-sm font-semibold text-white shadow-btn transition hover:shadow-btn-hover active:translate-y-px active:shadow-btn-press focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-          >
-            <GoogleMark />
-            Continue with Google
-          </button>
-
-          <p className="mt-7 text-center text-sm text-ink-2">
-            Don&rsquo;t have an account?{' '}
-            <button
-              type="button"
-              className="font-semibold text-accent transition hover:text-accent-strong"
-            >
-              Sign up now
-            </button>
-          </p>
         </div>
       </div>
     </div>
