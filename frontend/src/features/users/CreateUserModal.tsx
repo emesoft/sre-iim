@@ -19,16 +19,16 @@ export function CreateUserModal({
   onClose: () => void
   onCreated: (user: UserOut) => void
 }) {
+  const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
-  const [name, setName] = useState('')
   const [password, setPassword] = useState('')
   const [role, setRole] = useState<Role>('consultant')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
   const reset = () => {
+    setUsername('')
     setEmail('')
-    setName('')
     setPassword('')
     setRole('consultant')
     setErr(null)
@@ -45,8 +45,8 @@ export function CreateUserModal({
     setBusy(true)
     try {
       const user = await api.post<UserOut>('/api/users', {
-        email: email.trim(),
-        name: name.trim() || null,
+        username: username.trim(),
+        email: email.trim() || null,
         password,
         role,
       })
@@ -62,19 +62,26 @@ export function CreateUserModal({
   return (
     <Modal open={open} title="New user" onClose={close}>
       <form onSubmit={submit} className="flex flex-col gap-3">
-        <Field label="Email">
+        <Field label="Username">
+          <input
+            type="text"
+            required
+            autoComplete="off"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="jdoe"
+            className={inputCls}
+          />
+        </Field>
+        <Field label="Email (optional)">
           <input
             type="email"
-            required
             autoComplete="off"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="name@company.com"
             className={inputCls}
           />
-        </Field>
-        <Field label="Name (optional)">
-          <input value={name} onChange={(e) => setName(e.target.value)} className={inputCls} />
         </Field>
         <Field label="Password">
           <input
@@ -87,7 +94,7 @@ export function CreateUserModal({
             className={inputCls}
           />
         </Field>
-        <Field label="Role">
+        <Field label="Group">
           <select value={role} onChange={(e) => setRole(e.target.value as Role)} className={inputCls}>
             {ROLES.map((r) => (
               <option key={r} value={r}>

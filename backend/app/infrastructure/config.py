@@ -92,9 +92,11 @@ class Settings(BaseSettings):
 
     # --- Initial admin bootstrap ---
     # If set and the `users` table is empty at startup, main.py's lifespan creates the first admin
-    # account — otherwise there would be no way to log in at all on a fresh database.
-    initial_admin_email: str | None = None
+    # account — otherwise there would be no way to log in at all on a fresh database. `email` is
+    # optional, purely informational (login is by username).
+    initial_admin_username: str | None = None
     initial_admin_password: str | None = None
+    initial_admin_email: str | None = None
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -12,7 +12,8 @@ class UserOut(BaseModel):
     """A user account as returned to clients — never includes `password_hash`."""
 
     id: uuid.UUID
-    email: str
+    username: str
+    email: str | None
     role: str
     created_at: datetime
 

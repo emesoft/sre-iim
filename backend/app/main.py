@@ -81,17 +81,23 @@ async def _run_scheduled_poll() -> None:
 
 
 async def _seed_initial_admin() -> None:
-    """If INITIAL_ADMIN_EMAIL/INITIAL_ADMIN_PASSWORD are set and no users exist yet, create the
+    """If INITIAL_ADMIN_USERNAME/INITIAL_ADMIN_PASSWORD are set and no users exist yet, create the
     first admin account — otherwise a fresh database has no way to log in at all. Safe to call on
-    every startup: it only acts when the `users` table is empty."""
-    if not settings.initial_admin_email or not settings.initial_admin_password:
+    every startup: it only acts when the `users` table is empty. INITIAL_ADMIN_EMAIL is optional,
+    purely informational (login is by username)."""
+    if not settings.initial_admin_username or not settings.initial_admin_password:
         return
     async with SessionLocal() as session:
         users = SqlAlchemyUserRepository(session)
         if await users.list_all():
             return
         manager = ManageUsers(users=users, uow=SqlAlchemyUnitOfWork(session))
-        await manager.create(settings.initial_admin_email, settings.initial_admin_password, "admin")
+        await manager.create(
+            settings.initial_admin_username,
+            settings.initial_admin_password,
+            "admin",
+            email=settings.initial_admin_email,
+        )
 
 
 @asynccontextmanager

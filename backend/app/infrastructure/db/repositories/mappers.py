@@ -131,6 +131,7 @@ def project_to_domain(row: ProjectRow) -> Project:
 def user_to_domain(row: UserRow) -> User:
     return User(
         id=row.id,
+        username=row.username,
         email=row.email,
         password_hash=row.password_hash,
         role=row.role,

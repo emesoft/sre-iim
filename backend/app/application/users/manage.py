@@ -1,4 +1,4 @@
-"""ManageUsers: admin CRUD over user accounts. Translates the database-level unique-email
+"""ManageUsers: admin CRUD over user accounts. Translates the database-level unique-username
 constraint violation into a domain error here — same convention as ManageProjects translating its
 own unique-name constraint.
 """
@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.domain.shared import UnitOfWork
 from app.domain.users.entities import User
-from app.domain.users.errors import EmailTakenError, UserNotFoundError
+from app.domain.users.errors import UsernameTakenError, UserNotFoundError
 from app.domain.users.ports import UserRepository
 from app.infrastructure.security.passwords import hash_password
 
@@ -22,14 +22,19 @@ class ManageUsers:
     users: UserRepository
     uow: UnitOfWork
 
-    async def create(self, email: str, password: str, role: str) -> User:
+    async def create(self, username: str, password: str, role: str, email: str | None = None) -> User:
         try:
             user = await self.users.add(
-                User(email=email, password_hash=hash_password(password), role=role)
+                User(
+                    username=username,
+                    email=email,
+                    password_hash=hash_password(password),
+                    role=role,
+                )
             )
         except IntegrityError as exc:
             await self.uow.rollback()
-            raise EmailTakenError(email) from exc
+            raise UsernameTakenError(username) from exc
         await self.uow.commit()
         return user
 

@@ -42,6 +42,7 @@ from tests.sse_test_utils import iter_sse
 # covered by test_auth_http.py / test_users_http.py).
 _ADMIN_USER = User(
     id=uuid.uuid4(),
+    username="admin",
     email="admin@test.local",
     password_hash="unused",
     role="admin",

@@ -46,6 +46,7 @@ async def client():
         await s.execute(delete(UserRow))
         s.add(
             UserRow(
+                username="sre",
                 email="sre@test.local",
                 password_hash=hash_password(_PASSWORD),
                 role="sre",
@@ -69,24 +70,24 @@ async def client():
 
 async def test_login_with_correct_password_returns_a_token_and_user(client):
     r = await client.post(
-        "/api/auth/login", json={"email": "sre@test.local", "password": _PASSWORD}
+        "/api/auth/login", json={"username": "sre", "password": _PASSWORD}
     )
     assert r.status_code == 200, r.text
     body = r.json()
     assert "token" in body
-    assert body["user"]["email"] == "sre@test.local"
+    assert body["user"]["username"] == "sre"
     assert body["user"]["role"] == "sre"
     assert "password_hash" not in body["user"]
 
 
 async def test_login_with_wrong_password_is_401(client):
-    r = await client.post("/api/auth/login", json={"email": "sre@test.local", "password": "nope"})
+    r = await client.post("/api/auth/login", json={"username": "sre", "password": "nope"})
     assert r.status_code == 401
 
 
-async def test_login_with_unknown_email_is_401(client):
+async def test_login_with_unknown_username_is_401(client):
     r = await client.post(
-        "/api/auth/login", json={"email": "nobody@test.local", "password": _PASSWORD}
+        "/api/auth/login", json={"username": "nobody", "password": _PASSWORD}
     )
     assert r.status_code == 401
 
@@ -103,12 +104,12 @@ async def test_me_with_a_bogus_token_is_401(client):
 
 async def test_me_with_a_valid_token_returns_the_logged_in_user(client):
     login = await client.post(
-        "/api/auth/login", json={"email": "sre@test.local", "password": _PASSWORD}
+        "/api/auth/login", json={"username": "sre", "password": _PASSWORD}
     )
     token = login.json()["token"]
     r = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
     assert r.status_code == 200, r.text
-    assert r.json()["email"] == "sre@test.local"
+    assert r.json()["username"] == "sre"
     assert r.json()["role"] == "sre"
 
 

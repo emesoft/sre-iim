@@ -27,6 +27,7 @@ _DB_URL = os.environ.get("TEST_DATABASE_URL") or os.environ.get(
 
 _ADMIN_USER = User(
     id=uuid.uuid4(),
+    username="admin",
     email="admin@test.local",
     password_hash="unused",
     role="admin",
@@ -34,6 +35,7 @@ _ADMIN_USER = User(
 )
 _SRE_USER = User(
     id=uuid.uuid4(),
+    username="sre",
     email="sre@test.local",
     password_hash="unused",
     role="sre",
@@ -41,6 +43,7 @@ _SRE_USER = User(
 )
 _CONSULTANT_USER = User(
     id=uuid.uuid4(),
+    username="consultant",
     email="consultant@test.local",
     password_hash="unused",
     role="consultant",
@@ -81,33 +84,33 @@ async def client():
 
 async def test_admin_can_create_and_list_users(client):
     r = await client.post(
-        "/api/users", json={"email": "new.sre@test.local", "password": "password123", "role": "sre"}
+        "/api/users", json={"username": "new.sre", "password": "password123", "role": "sre"}
     )
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["email"] == "new.sre@test.local"
+    assert body["username"] == "new.sre"
     assert body["role"] == "sre"
     assert "password" not in body
     assert "password_hash" not in body
 
     r = await client.get("/api/users")
     assert r.status_code == 200
-    assert [u["email"] for u in r.json()] == ["new.sre@test.local"]
+    assert [u["username"] for u in r.json()] == ["new.sre"]
 
 
 async def test_create_with_unknown_role_is_422(client):
     r = await client.post(
-        "/api/users", json={"email": "x@test.local", "password": "password123", "role": "wizard"}
+        "/api/users", json={"username": "x", "password": "password123", "role": "wizard"}
     )
     assert r.status_code == 422
 
 
-async def test_create_duplicate_email_is_409(client):
+async def test_create_duplicate_username_is_409(client):
     await client.post(
-        "/api/users", json={"email": "dup@test.local", "password": "password123", "role": "sre"}
+        "/api/users", json={"username": "dup", "password": "password123", "role": "sre"}
     )
     r = await client.post(
-        "/api/users", json={"email": "dup@test.local", "password": "password123", "role": "sre"}
+        "/api/users", json={"username": "dup", "password": "password123", "role": "sre"}
     )
     assert r.status_code == 409
 
@@ -115,7 +118,7 @@ async def test_create_duplicate_email_is_409(client):
 async def test_admin_can_update_a_users_role(client):
     r = await client.post(
         "/api/users",
-        json={"email": "promote@test.local", "password": "password123", "role": "consultant"},
+        json={"username": "promote", "password": "password123", "role": "consultant"},
     )
     user_id = r.json()["id"]
 
@@ -134,7 +137,7 @@ async def test_update_unknown_user_is_404(client):
 async def test_admin_can_delete_a_user(client):
     r = await client.post(
         "/api/users",
-        json={"email": "delete-me@test.local", "password": "password123", "role": "consultant"},
+        json={"username": "delete-me", "password": "password123", "role": "consultant"},
     )
     user_id = r.json()["id"]
 

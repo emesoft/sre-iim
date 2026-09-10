@@ -22,6 +22,7 @@ from app.main import app
 
 _ADMIN_USER = User(
     id=uuid.uuid4(),
+    username="admin",
     email="admin@test.local",
     password_hash="unused",
     role="admin",

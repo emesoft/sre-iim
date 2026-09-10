@@ -31,11 +31,11 @@ export function useAuth() {
     if (!getAuthToken() && user) setUser(null)
   })
 
-  const signIn = async (email: string, password: string, remember = true) => {
+  const signIn = async (username: string, password: string, remember = true) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.post<LoginResponse>('/api/auth/login', { email, password })
+      const res = await api.post<LoginResponse>('/api/auth/login', { username, password })
       setAuthToken(res.token, remember)
       const value = JSON.stringify(res.user)
       ;(remember ? sessionStorage : localStorage).removeItem(USER_KEY)

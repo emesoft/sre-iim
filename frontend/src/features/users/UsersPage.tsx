@@ -47,7 +47,7 @@ export function UsersPage({ currentUserId }: { currentUserId: string | null }) {
   }
 
   const remove = async (user: UserOut) => {
-    if (!confirm(`Delete ${user.email}? This cannot be undone.`)) return
+    if (!confirm(`Delete ${user.username}? This cannot be undone.`)) return
     setRowError(null)
     setBusyId(user.id)
     try {
@@ -96,20 +96,22 @@ export function UsersPage({ currentUserId }: { currentUserId: string | null }) {
             <table className="w-full text-left text-sm">
               <thead>
                 <tr className="border-b border-hair text-xs font-semibold uppercase tracking-wide text-muted">
+                  <th className="px-5 py-3">Username</th>
                   <th className="px-5 py-3">Email</th>
-                  <th className="px-5 py-3">Role</th>
+                  <th className="px-5 py-3">Group</th>
                   <th className="px-5 py-3" />
                 </tr>
               </thead>
               <tbody>
                 {users.map((u) => (
                   <tr key={u.id} className="border-b border-hair last:border-0">
-                    <td className="px-5 py-3 font-medium text-ink">{u.email}</td>
+                    <td className="px-5 py-3 font-medium text-ink">{u.username}</td>
+                    <td className="px-5 py-3 text-ink-2">{u.email || '—'}</td>
                     <td className="px-5 py-3">
                       <div className="flex items-center gap-2">
                         <Badge tone={ROLE_TONE[u.role]}>{u.role}</Badge>
                         <select
-                          aria-label={`Change role for ${u.email}`}
+                          aria-label={`Change group for ${u.username}`}
                           value={u.role}
                           disabled={busyId === u.id}
                           onChange={(e) => changeRole(u, e.target.value as Role)}

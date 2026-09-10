@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.application.users.manage import ManageUsers
 from app.domain.users.entities import ROLES
-from app.domain.users.errors import EmailTakenError, UserNotFoundError
+from app.domain.users.errors import UsernameTakenError, UserNotFoundError
 from app.interface.http.deps import get_manage_users, require_role
 from app.interface.http.dto import mappers
 from app.interface.http.dto.request import CreateUserRequest, UpdateUserRequest
@@ -35,8 +35,8 @@ async def create_user(
 ) -> UserOut:
     _check_role(body.role)
     try:
-        user = await manager.create(body.email, body.password, body.role)
-    except EmailTakenError as exc:
+        user = await manager.create(body.username, body.password, body.role, email=body.email)
+    except UsernameTakenError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return mappers.user_out(user)
 

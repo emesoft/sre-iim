@@ -33,9 +33,9 @@ function LogoChip({ size = 40 }: { size?: number }) {
 export function Login({
   onSignIn,
 }: {
-  onSignIn: (email: string, password: string, remember: boolean) => Promise<void>
+  onSignIn: (username: string, password: string, remember: boolean) => Promise<void>
 }) {
-  const [email, setEmail] = useState('')
+  const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [remember, setRemember] = useState(true)
   const [show, setShow] = useState(false)
@@ -47,7 +47,7 @@ export function Login({
     setError(null)
     setSubmitting(true)
     try {
-      await onSignIn(email, password, remember)
+      await onSignIn(username, password, remember)
     } catch (e) {
       setError(errText(e))
     } finally {
@@ -112,17 +112,17 @@ export function Login({
 
           <form className="mt-7 space-y-4" onSubmit={submit}>
             <div className="space-y-1">
-              <label htmlFor="email" className="text-xs font-medium text-ink-2">
-                Email
+              <label htmlFor="username" className="text-xs font-medium text-ink-2">
+                Username
               </label>
               <input
-                id="email"
-                type="email"
+                id="username"
+                type="text"
                 autoComplete="username"
                 required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@emesoft.net"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="jdoe"
                 className={inputClass}
               />
             </div>

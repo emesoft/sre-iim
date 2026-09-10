@@ -32,6 +32,7 @@ pytestmark = pytest.mark.asyncio
 # with a fake admin so this suite exercises the chat use case, not the role gate.
 _ADMIN_USER = User(
     id=uuid.uuid4(),
+    username="admin",
     email="admin@test.local",
     password_hash="unused",
     role="admin",

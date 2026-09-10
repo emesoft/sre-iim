@@ -28,6 +28,7 @@ _DIM = EMBED_DIM
 # with a fake admin so these tests exercise document ingest/CRUD, not the role gate.
 _ADMIN_USER = User(
     id=uuid.uuid4(),
+    username="admin",
     email="admin@test.local",
     password_hash="unused",
     role="admin",

@@ -5,17 +5,19 @@ import type { Role } from '../../lib/types'
 export function Sidebar({
   view,
   onNavigate,
+  username,
   email,
   role,
   onSignOut,
 }: {
   view: View
   onNavigate: (v: View) => void
-  email: string | null
+  username: string | null
+  email: string | null | undefined
   role: Role | null
   onSignOut: () => void
 }) {
-  const initials = (email ?? '?').slice(0, 2).toUpperCase()
+  const initials = (username ?? email ?? '?').slice(0, 2).toUpperCase()
   const sections = navSectionsForRole(role)
   return (
     <aside className="hidden w-64 shrink-0 flex-col bg-rail text-rail-text md:flex">
@@ -78,7 +80,8 @@ export function Sidebar({
             {initials}
           </span>
           <div className="min-w-0 flex-1 leading-tight">
-            <div className="truncate text-sm font-semibold text-white">{email}</div>
+            <div className="truncate text-sm font-semibold text-white">{username}</div>
+            {email && <div className="truncate text-[11px] font-medium text-rail-dim">{email}</div>}
             <div className="text-[11px] font-medium capitalize text-rail-dim">{role ?? 'Signed in'}</div>
           </div>
         </div>

@@ -35,6 +35,7 @@ from tests.sse_test_utils import iter_sse
 # with a fake admin so this suite exercises the ingest/stream flow, not the role gate.
 _ADMIN_USER = User(
     id=uuid.uuid4(),
+    username="admin",
     email="admin@test.local",
     password_hash="unused",
     role="admin",

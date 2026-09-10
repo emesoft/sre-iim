@@ -54,8 +54,9 @@ services:
       # --- Per-user auth (JWT) + initial admin bootstrap ---
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS:-28800}
-      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-}
       INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-}
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-iim}:${DB_PASSWORD:-iim}@db:5432/${POSTGRES_DB:-iim}
     depends_on:
       db:

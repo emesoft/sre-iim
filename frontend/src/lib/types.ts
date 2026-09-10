@@ -212,13 +212,14 @@ export type Role = 'admin' | 'sre' | 'consultant'
 
 export interface UserOut {
   id: string
-  email: string
+  username: string
+  email: string | null
   role: Role
   created_at: string
 }
 
 export interface LoginRequest {
-  email: string
+  username: string
   password: string
 }
 

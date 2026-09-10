@@ -81,6 +81,6 @@ export const VIEW_META: Record<View, { title: string; subtitle: string }> = {
   },
   users: {
     title: 'Users',
-    subtitle: 'Manage accounts and roles for this console',
+    subtitle: 'Manage accounts and groups for this console',
   },
 }

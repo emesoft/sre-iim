@@ -1,4 +1,4 @@
-"""Per-user login: email + password -> JWT access token. Replaces the old single shared-password
+"""Per-user login: username + password -> JWT access token. Replaces the old single shared-password
 admin gate — see `require_role`/`get_current_user` in deps.py for the gate itself.
 """
 
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 @router.post("/login", response_model=LoginResponse)
 async def login(body: LoginRequest, login_use_case: Login = Depends(get_login)) -> LoginResponse:
     try:
-        user, token = await login_use_case.execute(body.email, body.password)
+        user, token = await login_use_case.execute(body.username, body.password)
     except InvalidCredentialsError as exc:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(exc)) from exc
     return LoginResponse(token=token, user=mappers.user_out(user))

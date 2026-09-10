@@ -1,6 +1,6 @@
-"""Login: verify email/password, issue a JWT access token.
+"""Login: verify username/password, issue a JWT access token.
 
-Deliberately doesn't distinguish "unknown email" from "wrong password" in the error it raises —
+Deliberately doesn't distinguish "unknown username" from "wrong password" in the error it raises —
 both surface as InvalidCredentialsError (anti-enumeration).
 """
 
@@ -21,9 +21,9 @@ class Login:
     jwt_secret: str
     jwt_ttl_seconds: int
 
-    async def execute(self, email: str, password: str) -> tuple[User, str]:
-        user = await self.users.get_by_email(email)
-        # Run verify_password even on a miss (against a dummy hash) so a nonexistent email
+    async def execute(self, username: str, password: str) -> tuple[User, str]:
+        user = await self.users.get_by_username(username)
+        # Run verify_password even on a miss (against a dummy hash) so a nonexistent username
         # doesn't return faster than a wrong password — a cheap timing-based enumeration guard.
         password_hash = user.password_hash if user is not None else _DUMMY_HASH
         ok = verify_password(password, password_hash)

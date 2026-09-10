@@ -78,7 +78,14 @@ function Dashboard({
 
   return (
     <div className="flex h-full">
-      <Sidebar view={view} onNavigate={setView} email={user.email} role={role} onSignOut={onSignOut} />
+      <Sidebar
+        view={view}
+        onNavigate={setView}
+        username={user.username}
+        email={user.email}
+        role={role}
+        onSignOut={onSignOut}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar
           query={query}

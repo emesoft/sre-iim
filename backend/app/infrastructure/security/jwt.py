@@ -1,6 +1,6 @@
 """Per-user JWT access tokens (replaces the old shared-password HMAC token in admin_auth.py).
 
-Claims: `sub` (user id), `email`, `role`, `exp`. Signed HS256 with `jwt_secret_key` (config.py).
+Claims: `sub` (user id), `username`, `role`, `exp`. Signed HS256 with `jwt_secret_key` (config.py).
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ def create_access_token(user: User, secret: str, ttl_seconds: int) -> str:
     now = datetime.now(timezone.utc)
     claims = {
         "sub": str(user.id),
-        "email": user.email,
+        "username": user.username,
         "role": user.role,
         "iat": now,
         "exp": now + timedelta(seconds=ttl_seconds),
@@ -37,7 +37,7 @@ def create_access_token(user: User, secret: str, ttl_seconds: int) -> str:
 
 
 def decode_access_token(token: str, secret: str) -> dict:
-    """Returns the decoded claims dict (`sub`, `email`, `role`). Raises `InvalidTokenError` on any
+    """Returns the decoded claims dict (`sub`, `username`, `role`). Raises `InvalidTokenError` on any
     failure — expired, bad signature, malformed — rather than leaking the underlying PyJWT
     exception type into the interface layer."""
     if not secret:

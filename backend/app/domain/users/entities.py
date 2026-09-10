@@ -15,10 +15,12 @@ ROLES = ("admin", "sre", "consultant")
 
 @dataclass
 class User:
-    """One per-user account: email + bcrypt password hash + role."""
+    """One per-user account: username (login identity) + bcrypt password hash + role. `email` is
+    optional, purely informational — it is no longer used for login or required to be unique."""
 
-    email: str
+    username: str
     password_hash: str
     role: str = "consultant"
+    email: str | None = None
     id: uuid.UUID | None = None
     created_at: datetime | None = None

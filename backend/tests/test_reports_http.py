@@ -21,6 +21,7 @@ pytestmark = pytest.mark.asyncio
 
 _CONSULTANT_USER = User(
     id=uuid.uuid4(),
+    username="consultant",
     email="consultant@test.local",
     password_hash="unused",
     role="consultant",

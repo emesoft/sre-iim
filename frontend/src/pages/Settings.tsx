@@ -23,7 +23,7 @@ export function Settings({ role }: { role: Role | null }) {
         <EmptyState
           icon={ShieldOff}
           title="Insufficient permissions"
-          hint="Settings is admin-only. Ask an admin to change your role if you need access."
+          hint="Settings is admin-only. Ask an admin to change your group if you need access."
         />
       </div>
     )

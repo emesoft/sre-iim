@@ -7,4 +7,10 @@ from app.interface.http.dto.response.auth import UserOut
 
 
 def user_out(user: User) -> UserOut:
-    return UserOut(id=user.id, email=user.email, role=user.role, created_at=user.created_at)
+    return UserOut(
+        id=user.id,
+        username=user.username,
+        email=user.email,
+        role=user.role,
+        created_at=user.created_at,
+    )

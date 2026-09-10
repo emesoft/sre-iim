@@ -1,7 +1,7 @@
 """SQLAlchemy repository for per-user accounts (implements the port in domain/users/ports.py).
 Same convention as infrastructure/db/repositories/projects.py.
 
-Does not translate IntegrityError (unique email) into a domain error itself — that happens one
+Does not translate IntegrityError (unique username) into a domain error itself — that happens one
 layer up, in app/application/users/manage.py (ManageUsers), matching where ManageProjects does the
 same translation for its own unique-name constraint.
 """
@@ -22,9 +22,9 @@ class SqlAlchemyUserRepository:
     def __init__(self, session: AsyncSession) -> None:
         self._s = session
 
-    async def get_by_email(self, email: str) -> User | None:
+    async def get_by_username(self, username: str) -> User | None:
         row = (
-            await self._s.execute(select(UserRow).where(UserRow.email == email))
+            await self._s.execute(select(UserRow).where(UserRow.username == username))
         ).scalar_one_or_none()
         return user_to_domain(row) if row else None
 
@@ -33,7 +33,12 @@ class SqlAlchemyUserRepository:
         return user_to_domain(row) if row else None
 
     async def add(self, user: User) -> User:
-        row = UserRow(email=user.email, password_hash=user.password_hash, role=user.role)
+        row = UserRow(
+            username=user.username,
+            email=user.email,
+            password_hash=user.password_hash,
+            role=user.role,
+        )
         self._s.add(row)
         await self._s.flush()
         await self._s.refresh(row)
