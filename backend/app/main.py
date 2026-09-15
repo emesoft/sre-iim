@@ -9,13 +9,16 @@ FastAPI docs: https://fastapi.tiangolo.com/
 APScheduler docs: https://apscheduler.readthedocs.io/
 """
 
+import logging
 from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.application.cloud_connections.poll_alarms import PollAlarmsJob
+from app.application.integrations.poll_alarms import PollAlarmsJob
+from app.application.incidents.auto_analyze import AutoAnalyzeIncidents
 from app.application.incidents.ingest import IngestIncident
 from app.application.incidents.resolve import ResolveIncident
 from app.application.users.manage import ManageUsers
@@ -23,7 +26,6 @@ from app.infrastructure.clock import SystemClock
 from app.infrastructure.config import get_settings
 from app.infrastructure.db.repositories import (
     SqlAlchemyAnalysisCacheRepository,
-    SqlAlchemyCloudConnectionRepository,
     SqlAlchemyDocumentRepository,
     SqlAlchemyIncidentRepository,
     SqlAlchemyTrackedAlarmRepository,
@@ -31,22 +33,39 @@ from app.infrastructure.db.repositories import (
     SqlAlchemyUserRepository,
 )
 from app.infrastructure.db.session import SessionLocal
-from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
-from app.infrastructure.cloud.credential_resolver import CredentialResolver
+from app.infrastructure.db.repositories.integrations import SqlAlchemyIntegrationRepository
+from app.infrastructure.integrations.registry import ProviderRegistry
 from app.infrastructure.security.encryptor import Encryptor
-from app.interface.http.ado_connections import router as ado_connections_router
 from app.interface.http.auth import router as auth_router
-from app.interface.http.cloud_connections import router as cloud_connections_router
-from app.interface.http.deps import get_analyzer, get_base_analyzer, get_embedder
+from app.interface.http.deps import (
+    get_analyzers,
+    get_base_analyzer,
+    get_context_enricher,
+    get_embedder,
+)
 from app.interface.http.documents import router as documents_router
 from app.interface.http.health import router as health_router
 from app.interface.http.incidents import router as incidents_router
+from app.interface.http.integrations import providers_router
+from app.interface.http.integrations import router as integrations_router
 from app.interface.http.projects import router as projects_router
 from app.interface.http.reports import router as reports_router
 from app.interface.http.settings import router as settings_router
+from app.interface.http.groups import router as groups_router
 from app.interface.http.users import router as users_router
+from app.interface.http.webhooks import router as webhooks_router
 
 settings = get_settings()
+
+
+async def _requeue_interrupted(incidents, uow, settings) -> None:
+    """Put back anything a restart left mid-analysis. Runs on every poll cycle, not only at boot,
+    so a crash at 02:00 is recovered by 02:05 rather than by whoever notices in the morning."""
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=settings.analysis_stale_minutes)
+    requeued = await incidents.reset_stale_analyzing(cutoff)
+    if requeued:
+        await uow.commit()
+        logger.warning("re-queued %d incident(s) left stuck in analyzing", requeued)
 
 
 async def _run_scheduled_poll() -> None:
@@ -55,19 +74,27 @@ async def _run_scheduled_poll() -> None:
     PollAlarmsJob class via a request-scoped session in deps.get_poll_alarms_job."""
     async with SessionLocal() as session:
         embedder = get_embedder()
+        encryptor = Encryptor(settings.secret_encryption_key)
+        # Resolved once per cycle: the scheduler has no request to hang a dependency off, and a
+        # provider switched on the Settings page should take effect on the next poll.
+        analyzers = get_analyzers(
+            session=session,
+            base=await get_base_analyzer(session),
+            embedder=embedder,
+            current_user=None,  # the scheduler has no requester
+        )
         job = PollAlarmsJob(
-            connections=SqlAlchemyCloudConnectionRepository(session),
+            integrations=SqlAlchemyIntegrationRepository(session),
             tracked=SqlAlchemyTrackedAlarmRepository(session),
-            fetcher=CloudWatchAlarmFetcher(
-                CredentialResolver(Encryptor(settings.secret_encryption_key))
-            ),
+            registry=ProviderRegistry(encryptor=encryptor),
             ingest=IngestIncident(
                 incidents=SqlAlchemyIncidentRepository(session),
                 cache=SqlAlchemyAnalysisCacheRepository(session),
-                analyzer=get_analyzer(session=session, base=get_base_analyzer(), embedder=embedder),
+                analyzers=analyzers,
                 clock=SystemClock(),
                 uow=SqlAlchemyUnitOfWork(session),
                 cache_ttl_seconds=settings.cache_ttl_seconds,
+                enricher=get_context_enricher(session),
             ),
             resolve=ResolveIncident(
                 incidents=SqlAlchemyIncidentRepository(session),
@@ -78,6 +105,30 @@ async def _run_scheduled_poll() -> None:
             uow=SqlAlchemyUnitOfWork(session),
         )
         await job.run()
+
+        # Straight after the poll, while whatever it just opened is the freshest thing in the
+        # table. Separate from the poll on purpose: it also picks up incidents created by the
+        # manual Refresh button and by webhooks, which the poller never sees again.
+        incidents = SqlAlchemyIncidentRepository(session)
+        await _requeue_interrupted(incidents, SqlAlchemyUnitOfWork(session), settings)
+        await AutoAnalyzeIncidents(
+            incidents=incidents,
+            ingest=IngestIncident(
+                incidents=incidents,
+                cache=SqlAlchemyAnalysisCacheRepository(session),
+                analyzers=analyzers,
+                clock=SystemClock(),
+                uow=SqlAlchemyUnitOfWork(session),
+                cache_ttl_seconds=settings.cache_ttl_seconds,
+                enricher=get_context_enricher(session),
+            ),
+            priorities=_auto_analyze_priorities(),
+            limit=settings.auto_analyze_max_per_run,
+        ).run()
+
+
+def _auto_analyze_priorities() -> tuple[str, ...]:
+    return tuple(p.strip().lower() for p in settings.auto_analyze_priorities.split(",") if p.strip())
 
 
 async def _seed_initial_admin() -> None:
@@ -100,9 +151,18 @@ async def _seed_initial_admin() -> None:
         )
 
 
+logger = logging.getLogger(__name__)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await _seed_initial_admin()
+    # A restart is precisely when an in-flight analysis gets orphaned, so recover before serving
+    # rather than waiting for the first poll cycle.
+    async with SessionLocal() as session:
+        await _requeue_interrupted(
+            SqlAlchemyIncidentRepository(session), SqlAlchemyUnitOfWork(session), settings
+        )
     scheduler = AsyncIOScheduler()
     scheduler.add_job(
         _run_scheduled_poll, "interval", minutes=settings.alarm_poll_interval_minutes,
@@ -133,12 +193,14 @@ app.include_router(health_router)
 app.include_router(incidents_router)
 app.include_router(documents_router)
 app.include_router(reports_router)
-app.include_router(cloud_connections_router)
-app.include_router(ado_connections_router)
+app.include_router(integrations_router)
+app.include_router(providers_router)
 app.include_router(projects_router)
 app.include_router(settings_router)
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(groups_router)
+app.include_router(webhooks_router)
 
 
 @app.get("/", tags=["meta"])

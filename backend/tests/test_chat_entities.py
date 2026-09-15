@@ -25,9 +25,16 @@ def test_chat_session_holds_ids():
 
 def test_chat_turn_result_fields():
     session_id = uuid.uuid4()
-    result = ChatTurnResult(text="hi", input_tokens=10, output_tokens=5, claude_session_id=session_id)
+    result = ChatTurnResult(
+        text="hi", input_tokens=10, cached_input_tokens=9000, output_tokens=5,
+        claude_session_id=session_id,
+    )
     assert result.text == "hi"
     assert result.claude_session_id == session_id
+    # Two separate numbers, deliberately: almost all of a chat turn's input is a cached prefix
+    # re-read every turn, and folding it into `input_tokens` reported spend an order of magnitude
+    # above what happened.
+    assert (result.input_tokens, result.cached_input_tokens) == (10, 9000)
 
 
 def test_ports_are_protocols():

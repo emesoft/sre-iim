@@ -35,6 +35,12 @@ class ManageProjects:
     async def list(self) -> list[Project]:
         return await self.projects.list()
 
+    async def set_auto_analyze(self, project_id: uuid.UUID, enabled: bool) -> Project:
+        """Pause/resume automatic triage for one project without touching the global setting."""
+        project = await self.projects.set_auto_analyze(project_id, enabled)
+        await self.uow.commit()
+        return project
+
     async def delete(self, project_id: uuid.UUID) -> None:
         existing = await self.projects.get(project_id)
         if existing is None:

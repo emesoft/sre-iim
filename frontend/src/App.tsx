@@ -1,16 +1,16 @@
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { Plus } from 'lucide-react'
 import { useAuth } from './lib/auth'
 import { useTheme, type Theme } from './lib/theme'
 import { useDashboard } from './lib/useDashboard'
 import { VIEW_META, type View } from './lib/nav'
-import { severityMeta } from './lib/severity'
-import type { Role, UserOut } from './lib/types'
+import type { EffectiveRole, UserOut } from './lib/types'
 import { Sidebar } from './components/layout/Sidebar'
 import { TopBar } from './components/layout/TopBar'
 import { PageHeader } from './components/layout/PageHeader'
 import { Button } from './components/ui/Button'
 import { Login } from './pages/Login'
+import { NoAccess } from './pages/NoAccess'
 import { Overview } from './pages/Overview'
 import { Incidents } from './pages/Incidents'
 import { KnowledgeBase } from './pages/KnowledgeBase'
@@ -23,9 +23,14 @@ import { NewDocumentModal } from './features/documents/NewDocumentModal'
 export default function App() {
   // useTheme runs on both screens so the login page respects light/dark too.
   const { theme, toggle } = useTheme()
-  const { authed, user, role, signIn, signOut } = useAuth()
+  const { authed, user, role, signIn, signInWithMicrosoft, signOut } = useAuth()
 
-  if (!authed || !user) return <Login onSignIn={signIn} />
+  if (!authed || !user)
+    return <Login onSignIn={signIn} onSignInWithMicrosoft={signInWithMicrosoft} />
+  // A non-admin with no project memberships would otherwise see a console full of empty tables,
+  // which reads as "the system is broken" rather than "you haven't been given access yet".
+  if (role !== 'admin' && user.projects.length === 0)
+    return <NoAccess username={user.username} onSignOut={signOut} />
   return (
     <Dashboard theme={theme} onToggleTheme={toggle} user={user} role={role} onSignOut={signOut} />
   )
@@ -41,7 +46,7 @@ function Dashboard({
   theme: Theme
   onToggleTheme: () => void
   user: UserOut
-  role: Role | null
+  role: EffectiveRole | null
   onSignOut: () => void
 }) {
   const [view, setView] = useState<View>('overview')
@@ -50,10 +55,17 @@ function Dashboard({
   const [query, setQuery] = useState('')
   const [showIncident, setShowIncident] = useState(false)
   const [showDoc, setShowDoc] = useState(false)
+  // Set when the dashboard's project board is clicked through, so the incident list opens already
+  // scoped to that project. Null means "leave the list's own filter alone".
+  const [projectFilter, setProjectFilter] = useState<string | null>(null)
 
   const data = useDashboard(dataVersion)
-  const refresh = () => setDataVersion((v) => v + 1)
-  const alertCount = data.incidents.filter((i) => severityMeta(i.severity).urgent).length
+  // Stable identity: child effects depend on this, so a fresh closure per render would make
+  // them re-run (and re-fetch) on every render.
+  const refresh = useCallback(() => setDataVersion((v) => v + 1), [])
+  // From the rollup, not the incident page: the bell has to count every urgent incident, not just
+  // the urgent ones that happened to fit in the page the list fetched.
+  const alertCount = data.rollup?.urgent ?? 0
 
   // Consultants are read-only everywhere: they can view incidents/documents/reports but cannot
   // create, resolve, ticket, chat, or ingest anything (backend 403s these routes for their role).
@@ -61,6 +73,14 @@ function Dashboard({
 
   const openIncident = (id: string) => {
     setSelectedId(id)
+    setView('incidents')
+  }
+
+  const clearProjectFilter = useCallback(() => setProjectFilter(null), [])
+
+  const openProject = (project: string) => {
+    setSelectedId(null)
+    setProjectFilter(project)
     setView('incidents')
   }
 
@@ -94,6 +114,9 @@ function Dashboard({
           onBellClick={() => setView('incidents')}
           theme={theme}
           onToggleTheme={onToggleTheme}
+          username={user.username}
+          email={user.email}
+          role={role}
         />
         <main className="plane-aurora flex min-h-0 flex-1 flex-col">
           {view !== 'users' && <PageHeader title={meta.title} subtitle={meta.subtitle} action={action} />}
@@ -103,18 +126,26 @@ function Dashboard({
                 data={data}
                 query={query}
                 onOpenIncident={openIncident}
+                onOpenProject={openProject}
                 onViewAll={() => setView('incidents')}
                 onRetry={refresh}
               />
             )}
             {view === 'incidents' && (
               <Incidents
-                data={data}
                 query={query}
+                refreshKey={dataVersion}
+                projectFilter={projectFilter}
+                onProjectFilterApplied={clearProjectFilter}
                 selectedId={selectedId}
                 onSelect={setSelectedId}
                 onRetry={refresh}
+                onIncidentChanged={refresh}
                 canMutate={canMutate}
+                onIncidentDeleted={() => {
+                  setSelectedId(null)
+                  refresh()
+                }}
               />
             )}
             {view === 'knowledge' && (

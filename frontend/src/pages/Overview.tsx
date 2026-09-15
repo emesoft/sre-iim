@@ -1,9 +1,12 @@
-import { AlertTriangle, BookOpen, ChevronRight, Inbox, ShieldAlert, Sparkles } from 'lucide-react'
+import { AlertTriangle, BookOpen, ChevronRight, Inbox, Sparkles } from 'lucide-react'
 import type { DashboardData } from '../lib/useDashboard'
 import type { IncidentSummary } from '../lib/types'
 import { severityMeta } from '../lib/severity'
 import { incidentRef, timeAgo } from '../lib/format'
-import { StatTile } from '../components/ui/StatTile'
+import { AttentionCard } from '../components/AttentionCard'
+import { StatStack } from '../components/StatStack'
+import { ProjectBoard } from '../components/ProjectBoard'
+import { NoisyAlarms } from '../components/NoisyAlarms'
 import { Card, CardHeader } from '../components/ui/Card'
 import { SeverityBadge } from '../components/ui/SeverityBadge'
 import { StatusBadge } from '../components/ui/StatusBadge'
@@ -16,27 +19,46 @@ export function Overview({
   data,
   query,
   onOpenIncident,
+  onOpenProject,
   onViewAll,
   onRetry,
 }: {
   data: DashboardData
   query: string
   onOpenIncident: (id: string) => void
+  onOpenProject: (project: string) => void
   onViewAll: () => void
   onRetry: () => void
 }) {
-  const { incidents, docs, loading, error } = data
+  const { incidents, docs, rollup, loading, error } = data
 
   const q = query.trim().toLowerCase()
   const matches = (i: IncidentSummary) =>
-    !q || [i.service, i.summary, i.status, i.fingerprint].some((v) => (v ?? '').toLowerCase().includes(q))
-  const recent = incidents.filter(matches).slice(0, 6)
+    !q ||
+    [i.service, i.summary, i.headline, i.status, i.fingerprint].some((v) =>
+      (v ?? '').toLowerCase().includes(q),
+    )
+  // Only the latest occurrence of a recurring alarm — see the same collapse in IncidentTable.
+  const supersededIds = new Set(
+    incidents.map((i) => i.previous_incident_id).filter((id): id is string => Boolean(id)),
+  )
+  const current = incidents.filter((i) => !supersededIds.has(i.id))
+  const recent = current.filter(matches).slice(0, 6)
 
-  const total = incidents.length
-  const urgent = incidents.filter((i) => severityMeta(i.severity).urgent).length
-  const analyzed = incidents.filter((i) => severityMeta(i.severity).key !== 'unknown').length
+  // Counts come from the rollup (aggregated in SQL), never from `incidents` — that's one page of
+  // rows, so counting it under-reports as soon as there are more incidents than the page holds.
+  // The urgent *rows* still come from the page; the card reconciles the two when they disagree.
+  const total = rollup?.active ?? 0
+  const urgentCount = rollup?.urgent ?? 0
+  const untriaged = rollup?.untriaged ?? 0
+  const newLast24h = rollup?.new_last_24h ?? 0
+  const urgentRows = current.filter(
+    (i) => i.status !== 'resolved' && severityMeta(i.severity).urgent,
+  )
+  // Open and never analysed. Fills the attention card when little is urgent — an unassessed
+  // incident is the honest next thing to look at, not padding.
+  const untriagedRows = current.filter((i) => i.status !== 'resolved' && !i.severity)
   const chunks = docs.reduce((s, d) => s + d.chunk_count, 0)
-  const coverage = total ? Math.round((analyzed / total) * 100) : 0
 
   if (error) {
     return (
@@ -54,59 +76,76 @@ export function Overview({
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
       <div className="space-y-5">
-        {/* Stat cards */}
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {loading ? (
-            [0, 1, 2, 3].map((k) => <Skeleton key={k} className="h-[132px] rounded-2xl" />)
-          ) : (
-            <>
-              <div className="animate-in" style={{ animationDelay: '0ms' }}>
-                <StatTile
-                  label="Active incidents"
-                  value={total}
-                  icon={AlertTriangle}
-                  accent="var(--sev-critical)"
-                  badge={
-                    urgent > 0
-                      ? { text: 'Action required', tone: 'danger' }
-                      : { text: 'All clear', tone: 'success' }
-                  }
-                />
-              </div>
-              <div className="animate-in" style={{ animationDelay: '60ms' }}>
-                <StatTile
-                  label="Needs attention"
-                  value={urgent}
-                  icon={ShieldAlert}
-                  accent="var(--sev-high)"
-                  badge={urgent > 0 ? { text: 'Critical + High', tone: 'warning' } : undefined}
-                />
-              </div>
-              <div className="animate-in" style={{ animationDelay: '120ms' }}>
-                <StatTile
-                  label="Knowledge docs"
-                  value={docs.length}
-                  icon={BookOpen}
-                  accent="var(--info)"
-                  badge={{ text: `${chunks} chunk${chunks === 1 ? '' : 's'}`, tone: 'info' }}
-                />
-              </div>
-              <div className="animate-in" style={{ animationDelay: '180ms' }}>
-                <StatTile
-                  label="AI analyses"
-                  value={analyzed}
-                  icon={Sparkles}
-                  accent="var(--purple)"
-                  badge={{ text: total ? `${coverage}% coverage` : 'Ready', tone: 'purple' }}
-                />
-              </div>
-            </>
-          )}
+        {/* Triage strip: the one card that demands a decision, plus its supporting numbers. */}
+        {/* Cards in a row share a height — that shared baseline is most of what makes a grid read
+            as deliberate rather than assembled. The fix for a half-empty card is its content
+            centring inside it, not the card shrinking away from its neighbour. */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.55fr_1fr]">
+          <div className="animate-in h-full">
+            <AttentionCard
+              urgent={urgentRows}
+              untriaged={untriagedRows}
+              urgentCount={urgentCount}
+              activeCount={total}
+              loading={loading}
+              onOpenIncident={onOpenIncident}
+              onViewAll={onViewAll}
+            />
+          </div>
+          <div className="animate-in h-full" style={{ animationDelay: '80ms' }}>
+            <StatStack
+              loading={loading}
+              items={[
+                {
+                  label: 'Active incidents',
+                  value: total,
+                  icon: AlertTriangle,
+                  accent: 'var(--sev-critical)',
+                  badge:
+                    newLast24h > 0
+                      ? { text: `+${newLast24h} in 24h`, tone: 'neutral' }
+                      : undefined,
+                },
+                {
+                  label: 'Untriaged',
+                  value: untriaged,
+                  icon: Sparkles,
+                  accent: 'var(--purple)',
+                  badge:
+                    untriaged > 0
+                      ? { text: 'no AI analysis yet', tone: 'warning' }
+                      : { text: 'all analysed', tone: 'success' },
+                },
+                {
+                  label: 'Knowledge docs',
+                  value: docs.length,
+                  icon: BookOpen,
+                  accent: 'var(--info)',
+                  badge: { text: `${chunks} chunk${chunks === 1 ? '' : 's'}`, tone: 'info' },
+                },
+              ]}
+            />
+          </div>
+        </div>
+
+        {/* The scalable half of the dashboard: one row per project and per repeating alarm, so
+            neither block grows with the incident count. */}
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.55fr_1fr]">
+          <div className="animate-in h-full">
+            <ProjectBoard
+              projects={rollup?.projects ?? []}
+              loading={loading}
+              onOpenProject={onOpenProject}
+            />
+          </div>
+          <div className="animate-in h-full" style={{ animationDelay: '80ms' }}>
+            <NoisyAlarms alarms={rollup?.noisy ?? []} loading={loading} />
+          </div>
         </div>
 
         {/* Recent incidents + activity */}
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.7fr_1fr]">
-          <Card className="animate-in p-5 md:p-6">
+          <Card className="animate-in min-w-0 p-5 md:p-6">
             <CardHeader
               title="Recent incidents"
               action={
@@ -141,7 +180,7 @@ export function Overview({
               ) : (
                 <ul className="-mx-2 space-y-0.5">
                   {recent.map((i) => {
-                    const m = severityMeta(i.severity)
+                    const m = severityMeta(i.severity, i.status)
                     return (
                       <li key={i.id}>
                         <button
@@ -153,8 +192,13 @@ export function Overview({
                             style={{ background: m.color }}
                           />
                           <div className="min-w-0 flex-1">
+                            {/* headline (the short alarm name) wins over the AI summary here, as
+                                in IncidentTable: the summary is a full sentence that just gets
+                                ellipsed away in a row this size. `service` is the last resort —
+                                every incident from one connection shares it, so on its own it
+                                made every row read "gcm". */}
                             <div className="truncate text-sm font-semibold text-ink">
-                              {i.summary || i.service}
+                              {i.headline || i.summary || i.service}
                             </div>
                             <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted">
                               <span className="font-mono">{incidentRef(i.id)}</span>
@@ -167,7 +211,7 @@ export function Overview({
                             </div>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
-                            <SeverityBadge severity={i.severity} size="xs" />
+                            <SeverityBadge severity={i.severity} status={i.status} size="xs" />
                             <span className="hidden md:inline-flex">
                               <StatusBadge status={i.status} />
                             </span>
@@ -185,7 +229,7 @@ export function Overview({
             </div>
           </Card>
 
-          <Card className="animate-in p-5 md:p-6">
+          <Card className="animate-in min-w-0 p-5 md:p-6">
             <CardHeader title="Activity" />
             <div className="mt-4">
               {loading ? (

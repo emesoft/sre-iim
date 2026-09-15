@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domain.projects.entities import Project
-from app.infrastructure.db.orm import AdoConnectionRow, Base, CloudConnectionRow, ProjectRow
+from app.infrastructure.db.orm import Base, IntegrationRow, ProjectRow
 from app.infrastructure.db.repositories.projects import SqlAlchemyProjectRepository
 
 pytestmark = pytest.mark.asyncio
@@ -40,8 +40,7 @@ async def session():
         # referencing tables before `projects` itself, and delete `projects` unconditionally
         # here, so a leftover row from a *different* test file's run never collides with (or
         # blocks the delete of) the names this file uses.
-        await s.execute(delete(CloudConnectionRow))
-        await s.execute(delete(AdoConnectionRow))
+        await s.execute(delete(IntegrationRow))
         await s.execute(delete(ProjectRow))
         await s.commit()
         yield s
@@ -86,9 +85,10 @@ async def test_delete_raises_integrity_error_when_referenced(session):
     created = await repo.add(Project(name="EVP"))
     await session.flush()
     session.add(
-        CloudConnectionRow(
-            id=uuid.uuid4(), project="EVP", env="prod", region="us-east-1", auth_type="sso",
-            sso_profile_name="p",
+        IntegrationRow(
+            id=uuid.uuid4(), project="EVP", env="prod", provider="aws",
+            config={"region": "us-east-1", "auth_type": "sso", "sso_profile_name": "p"},
+            capabilities=["alarms"],
         )
     )
     await session.commit()

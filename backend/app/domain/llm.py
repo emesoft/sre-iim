@@ -13,7 +13,7 @@ from __future__ import annotations
 import uuid
 from typing import Literal, Protocol
 
-from app.domain.incidents.entities import ChatTurnResult
+from app.domain.incidents.entities import ChatMessage, ChatTurnResult
 
 Tier = Literal["fast", "main"]
 
@@ -33,4 +33,10 @@ class IncidentChatProvider(Protocol):
         message: str,
         claude_session_id: uuid.UUID,
         is_new_session: bool,
-    ) -> ChatTurnResult: ...
+        history: list["ChatMessage"] | None = None,
+    ) -> ChatTurnResult:
+        """`history` is the stored transcript. A provider that keeps its own conversation state
+        server-side (the Claude Code CLI, via `--resume`) ignores it; one talking to a stateless
+        API needs it, and taking it from our own table means the transcript shown is the transcript
+        the model saw."""
+        ...

@@ -7,7 +7,7 @@ import {
   Users,
   type LucideIcon,
 } from 'lucide-react'
-import type { Role } from './types'
+import type { EffectiveRole, Role } from './types'
 
 export type View = 'overview' | 'incidents' | 'knowledge' | 'reports' | 'settings' | 'users'
 
@@ -51,10 +51,14 @@ export const NAV_SECTIONS: NavSection[] = [
 ]
 
 /** Filters `NAV_SECTIONS` down to the items a given role may see, dropping empty sections. */
-export function navSectionsForRole(role: Role | null): NavSection[] {
+export function navSectionsForRole(role: EffectiveRole | null): NavSection[] {
   return NAV_SECTIONS.map((section) => ({
     ...section,
-    items: section.items.filter((item) => !item.roles || (role !== null && item.roles.includes(role))),
+    // A guest matches no entry's `roles`, so they get an empty nav — which is right: they can
+    // reach nothing until an admin puts them in a group.
+    items: section.items.filter(
+      (item) => !item.roles || (role !== null && item.roles.includes(role as Role)),
+    ),
   })).filter((section) => section.items.length > 0)
 }
 
@@ -77,7 +81,7 @@ export const VIEW_META: Record<View, { title: string; subtitle: string }> = {
   },
   settings: {
     title: 'Settings',
-    subtitle: 'AWS connections used to poll CloudWatch alarms into incidents',
+    subtitle: 'Integrations, the analysis model, and deployment-wide switches',
   },
   users: {
     title: 'Users',

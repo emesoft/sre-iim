@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, clearAuthToken, errText, getAuthToken, setAuthToken } from './api'
-import type { LoginResponse, Role, UserOut } from './types'
+import { signInWithEntra } from './entra'
+import type { EffectiveRole, LoginResponse, UserOut } from './types'
 
 /**
  * Real per-user auth: POSTs to `/api/auth/login`, stores the returned `{ token, user }` pair, and
@@ -31,16 +32,21 @@ export function useAuth() {
     if (!getAuthToken() && user) setUser(null)
   })
 
-  const signIn = async (username: string, password: string, remember = true) => {
+  /** Both sign-in paths end here: whichever way the token was obtained, it and the cached user
+   * live in the same store so `remember` behaves identically. */
+  const accept = (res: LoginResponse, remember: boolean) => {
+    setAuthToken(res.token, remember)
+    const value = JSON.stringify(res.user)
+    ;(remember ? sessionStorage : localStorage).removeItem(USER_KEY)
+    ;(remember ? localStorage : sessionStorage).setItem(USER_KEY, value)
+    setUser(res.user)
+  }
+
+  const run = async (fn: () => Promise<LoginResponse>, remember: boolean) => {
     setLoading(true)
     setError(null)
     try {
-      const res = await api.post<LoginResponse>('/api/auth/login', { username, password })
-      setAuthToken(res.token, remember)
-      const value = JSON.stringify(res.user)
-      ;(remember ? sessionStorage : localStorage).removeItem(USER_KEY)
-      ;(remember ? localStorage : sessionStorage).setItem(USER_KEY, value)
-      setUser(res.user)
+      accept(await fn(), remember)
     } catch (e) {
       setError(errText(e))
       throw e
@@ -49,6 +55,11 @@ export function useAuth() {
     }
   }
 
+  const signIn = (username: string, password: string, remember = true) =>
+    run(() => api.post<LoginResponse>('/api/auth/login', { username, password }), remember)
+
+  const signInWithMicrosoft = (remember = true) => run(signInWithEntra, remember)
+
   const signOut = () => {
     clearAuthToken()
     localStorage.removeItem(USER_KEY)
@@ -56,7 +67,7 @@ export function useAuth() {
     setUser(null)
   }
 
-  const role: Role | null = user?.role ?? null
+  const role: EffectiveRole | null = user?.role ?? null
 
-  return { authed: user !== null, user, role, signIn, signOut, loading, error }
+  return { authed: user !== null, user, role, signIn, signInWithMicrosoft, signOut, loading, error }
 }

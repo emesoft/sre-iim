@@ -13,4 +13,7 @@ class ProjectOut(BaseModel):
 
     id: uuid.UUID
     name: str
+    # Whether urgent alarms in this project get triaged automatically (per-project switch over
+    # the global AUTO_ANALYZE_* settings).
+    auto_analyze: bool = True
     created_at: datetime

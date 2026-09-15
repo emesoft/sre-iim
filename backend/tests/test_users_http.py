@@ -148,6 +148,41 @@ async def test_admin_can_delete_a_user(client):
     assert r.json() == []
 
 
+async def test_admin_can_reset_a_users_password(client):
+    r = await client.post(
+        "/api/users",
+        json={"username": "reset-me", "password": "password123", "role": "consultant"},
+    )
+    user_id = r.json()["id"]
+
+    r = await client.post(f"/api/users/{user_id}/password", json={"new_password": "newpassword456"})
+    assert r.status_code == 200, r.text
+    assert "password" not in r.json()
+    assert "password_hash" not in r.json()
+
+    r = await client.post("/api/auth/login", json={"username": "reset-me", "password": "newpassword456"})
+    assert r.status_code == 200, r.text
+
+
+async def test_reset_password_too_short_is_422(client):
+    r = await client.post(
+        "/api/users",
+        json={"username": "short-pw", "password": "password123", "role": "consultant"},
+    )
+    user_id = r.json()["id"]
+
+    r = await client.post(f"/api/users/{user_id}/password", json={"new_password": "short"})
+    assert r.status_code == 422
+
+
+async def test_reset_password_for_unknown_user_is_404(client):
+    r = await client.post(
+        "/api/users/00000000-0000-0000-0000-000000000000/password",
+        json={"new_password": "newpassword456"},
+    )
+    assert r.status_code == 404
+
+
 async def test_delete_unknown_user_is_404(client):
     r = await client.delete("/api/users/00000000-0000-0000-0000-000000000000")
     assert r.status_code == 404

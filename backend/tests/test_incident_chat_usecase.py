@@ -31,7 +31,9 @@ class FakeChatRepo:
     async def add_message(self, message):
         stored = ChatMessage(
             incident_id=message.incident_id, role=message.role, content=message.content,
-            input_tokens=message.input_tokens, output_tokens=message.output_tokens,
+            input_tokens=message.input_tokens,
+            cached_input_tokens=message.cached_input_tokens,
+            output_tokens=message.output_tokens,
             id=uuid.uuid4(), created_at=datetime.now(timezone.utc),
         )
         self.messages.append(stored)
@@ -51,7 +53,9 @@ class FakeChatProvider:
         self._result = result
         self.calls = []
 
-    async def send(self, *, service, context, message, claude_session_id, is_new_session):
+    async def send(
+        self, *, service, context, message, claude_session_id, is_new_session, history=None
+    ):
         self.calls.append(
             {
                 "service": service, "context": context, "message": message,
@@ -79,7 +83,7 @@ async def test_first_message_is_a_new_session(monkeypatch=None):
     session_id_from_provider = uuid.uuid4()
     provider = FakeChatProvider(
         ChatTurnResult(
-            text="here's what I see", input_tokens=100, output_tokens=40,
+            text="here's what I see", input_tokens=100, cached_input_tokens=9000, output_tokens=40,
             claude_session_id=session_id_from_provider,
         )
     )
@@ -111,7 +115,7 @@ async def test_second_message_resumes_the_session():
 
     provider = FakeChatProvider(
         ChatTurnResult(
-            text="second reply", input_tokens=10, output_tokens=5,
+            text="second reply", input_tokens=10, cached_input_tokens=20, output_tokens=5,
             claude_session_id=existing_session.claude_session_id,
         )
     )
@@ -134,7 +138,8 @@ async def test_replaces_stored_session_id_when_the_provider_started_a_fresh_one(
     fresh_session_id = uuid.uuid4()
     provider = FakeChatProvider(
         ChatTurnResult(
-            text="restarted", input_tokens=1, output_tokens=1, claude_session_id=fresh_session_id
+            text="restarted", input_tokens=1, cached_input_tokens=0, output_tokens=1,
+            claude_session_id=fresh_session_id,
         )
     )
     use_case = IncidentChat(

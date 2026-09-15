@@ -1,22 +1,21 @@
-import { useEffect, useState } from 'react'
-import { ShieldOff } from 'lucide-react'
-import { api, errText } from '../lib/api'
-import type { AdoConnection, CloudConnection, PollResult, PollSchedule, Project, Role } from '../lib/types'
-import { ProjectRegistry } from '../features/settings/ProjectRegistry'
-import { ClaudeTokenForm } from '../features/settings/ClaudeTokenForm'
+import { useCallback, useEffect, useState } from 'react'
+import { Boxes, Cpu, ShieldOff, SlidersHorizontal, type LucideIcon } from 'lucide-react'
+import { api } from '../lib/api'
+import type { Project, EffectiveRole } from '../lib/types'
+import { IntegrationsPanel } from '../features/settings/IntegrationsPanel'
+import { LlmProfilesPanel } from '../features/settings/LlmProfilesPanel'
 import { LlmUsageCard } from '../features/settings/LlmUsageCard'
-import { Button } from '../components/ui/Button'
 import { EmptyState } from '../components/ui/EmptyState'
 
-function pollResultText(result: PollResult): string {
-  if (result.errors > 0) {
-    return `Refreshed ${result.polled} connection(s): ${result.errors} failed, ${result.alarm_count} alarm(s) active`
-  }
-  if (result.alarm_count === 0) return `Refreshed ${result.polled} connection(s): no active alarms`
-  return `Refreshed ${result.polled} connection(s): ${result.alarm_count} alarm(s) active`
-}
+type Section = 'integrations' | 'ai' | 'advanced'
 
-export function Settings({ role }: { role: Role | null }) {
+const SECTIONS: { id: Section; label: string; icon: LucideIcon }[] = [
+  { id: 'integrations', label: 'Integrations', icon: Boxes },
+  { id: 'ai', label: 'AI & usage', icon: Cpu },
+  { id: 'advanced', label: 'Advanced', icon: SlidersHorizontal },
+]
+
+export function Settings({ role }: { role: EffectiveRole | null }) {
   if (role !== 'admin') {
     return (
       <div className="flex h-full items-center justify-center p-8">
@@ -31,115 +30,75 @@ export function Settings({ role }: { role: Role | null }) {
   return <SettingsContent />
 }
 
+/**
+ * Settings, split by concern rather than stacked on one scrolling page.
+ *
+ * It used to be a single column mixing the Claude token, token usage, poll cadence, the project
+ * registry and every connection of every project — fine with two projects, unreadable with ten.
+ * The sub-nav keeps each concern one click away and lets the integrations view use the full width
+ * for its own master/detail.
+ */
 function SettingsContent() {
-  const [connections, setConnections] = useState<CloudConnection[]>([])
-  const [refreshing, setRefreshing] = useState(false)
-  const [refreshResult, setRefreshResult] = useState<{ ok: boolean; text: string } | null>(null)
-  const [schedule, setSchedule] = useState<PollSchedule | null>(null)
-  const [adoConnections, setAdoConnections] = useState<AdoConnection[]>([])
+  const [section, setSection] = useState<Section>('integrations')
   const [projects, setProjects] = useState<Project[]>([])
 
-  const load = async () => {
-    try {
-      setConnections(await api.get<CloudConnection[]>('/api/cloud-connections'))
-    } catch {
-      setConnections([]) // non-critical — each project's card just shows no AWS connections yet
-    }
-  }
-
-  const loadSchedule = async () => {
-    try {
-      setSchedule(await api.get<PollSchedule>('/api/cloud-connections/poll-schedule'))
-    } catch {
-      setSchedule(null) // non-critical — the refresh-all flow works without it
-    }
-  }
-
-  const loadAdo = async () => {
-    try {
-      setAdoConnections(await api.get<AdoConnection[]>('/api/ado-connections'))
-    } catch {
-      setAdoConnections([]) // non-critical — the ticket flow just reports "not configured"
-    }
-  }
-
-  const loadProjects = async () => {
+  const loadProjects = useCallback(async () => {
     try {
       setProjects(await api.get<Project[]>('/api/projects'))
     } catch {
-      setProjects([]) // non-critical — the registry just shows "No projects yet" until this loads
+      setProjects([]) // non-critical — the panel shows its own empty state
     }
-  }
-
-  useEffect(() => {
-    load()
-    loadSchedule()
-    loadAdo()
-    loadProjects()
   }, [])
 
-  const refreshNow = async () => {
-    setRefreshing(true)
-    setRefreshResult(null)
-    try {
-      const result = await api.post<PollResult>('/api/cloud-connections/poll', {})
-      await load()
-      setRefreshResult({ ok: result.errors === 0, text: pollResultText(result) })
-    } catch (e) {
-      setRefreshResult({ ok: false, text: errText(e) })
-    } finally {
-      setRefreshing(false)
-    }
-  }
+  useEffect(() => {
+    loadProjects()
+  }, [loadProjects])
 
   return (
     <div className="h-full overflow-y-auto px-4 pb-10 md:px-8">
-      <div className="animate-in flex flex-col gap-6">
-        <ClaudeTokenForm />
-        <LlmUsageCard />
+      <div className="animate-in grid grid-cols-1 gap-6 lg:grid-cols-[180px_1fr]">
+        <nav className="flex flex-row gap-1 lg:flex-col">
+          {SECTIONS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setSection(id)}
+              aria-current={section === id ? 'page' : undefined}
+              className={`flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${
+                section === id
+                  ? 'bg-surface text-ink shadow-card'
+                  : 'text-ink-2 hover:bg-surface-2 hover:text-ink'
+              }`}
+            >
+              <Icon size={16} strokeWidth={2.1} />
+              {label}
+            </button>
+          ))}
+        </nav>
 
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-muted">AWS connection polling</h3>
-          <Button variant="ghost" disabled={refreshing} onClick={refreshNow}>
-            {refreshing ? 'Refreshing…' : 'Refresh all'}
-          </Button>
+        <div className="min-w-0">
+          {section === 'integrations' && (
+            <IntegrationsPanel projects={projects} onProjectsChanged={loadProjects} />
+          )}
+          {section === 'ai' && (
+            <div className="flex flex-col gap-6">
+              <LlmProfilesPanel projects={projects} />
+              <LlmUsageCard />
+            </div>
+          )}
+          {section === 'advanced' && (
+            <div className="rounded-2xl border border-hair bg-surface p-5 text-sm text-ink-2 shadow-card">
+              <h3 className="font-display text-base font-bold text-ink">Advanced</h3>
+              <p className="mt-2 leading-relaxed">
+                Poll cadence and automatic-triage limits are environment settings
+                (<span className="font-mono text-xs text-ink">ALARM_POLL_INTERVAL_MINUTES</span>,{' '}
+                <span className="font-mono text-xs text-ink">AUTO_ANALYZE_PRIORITIES</span>,{' '}
+                <span className="font-mono text-xs text-ink">AUTO_ANALYZE_MAX_PER_RUN</span>) — they
+                apply to the whole deployment, so they live in <span className="font-mono text-xs text-ink">.env</span>{' '}
+                rather than here. Per-project auto-triage has its own switch under Integrations.
+              </p>
+            </div>
+          )}
         </div>
-        {schedule && (
-          <p className="-mt-4 text-xs text-muted">
-            Auto-polls every {schedule.interval_minutes} min
-            {schedule.next_run_at &&
-              ` — next run at ${new Date(schedule.next_run_at).toLocaleTimeString(undefined, {
-                hour: '2-digit',
-                minute: '2-digit',
-              })}`}
-          </p>
-        )}
-        {refreshResult && (
-          <p className={`-mt-4 text-xs ${refreshResult.ok ? 'text-sev-low' : 'text-sev-critical'}`}>
-            {refreshResult.text}
-          </p>
-        )}
-
-        <ProjectRegistry
-          projects={projects}
-          adoConnections={adoConnections}
-          cloudConnections={connections}
-          onProjectCreated={(p) => setProjects((prev) => [...prev, p])}
-          onProjectDeleted={(id) => setProjects((prev) => prev.filter((p) => p.id !== id))}
-          onAdoCreated={(c) => setAdoConnections((prev) => [...prev, c])}
-          onAdoUpdated={(c) =>
-            setAdoConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
-          }
-          onAdoDeleted={(id) => setAdoConnections((prev) => prev.filter((c) => c.id !== id))}
-          onCloudCreated={(c) => setConnections((prev) => [...prev, c])}
-          onCloudUpdated={(c) =>
-            setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
-          }
-          onCloudDeleted={(id) => setConnections((prev) => prev.filter((c) => c.id !== id))}
-          onCloudRefreshed={(c) =>
-            setConnections((prev) => prev.map((existing) => (existing.id === c.id ? c : existing)))
-          }
-        />
       </div>
     </div>
   )

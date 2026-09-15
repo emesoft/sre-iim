@@ -43,6 +43,21 @@ async def list_projects(
     return [mappers.project_out(p) for p in projects]
 
 
+@router.post("/{project_id}/auto-analyze", response_model=ProjectOut)
+async def set_auto_analyze(
+    project_id: uuid.UUID,
+    enabled: bool,
+    manager: ManageProjects = Depends(get_manage_projects),
+) -> ProjectOut:
+    """Pause or resume automatic triage for one project. Paused projects still ingest incidents
+    and can still be analyzed by hand — they just stop spending LLM calls on their own."""
+    try:
+        project = await manager.set_auto_analyze(project_id, enabled)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    return mappers.project_out(project)
+
+
 @router.delete("/{project_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_project(
     project_id: uuid.UUID,

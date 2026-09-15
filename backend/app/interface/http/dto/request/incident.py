@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
+
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -22,3 +26,17 @@ class ResolveIncidentRequest(BaseModel):
     """`POST /api/incidents/{id}/resolve` body: how the incident was actually fixed."""
 
     resolution_notes: str = Field(..., min_length=1)
+
+
+class BulkIncidentRequest(BaseModel):
+    """`POST /api/incidents/bulk` — the same action applied to several incidents.
+
+    Capped rather than unbounded: "resolve everything" is a plausible mis-click, and for `analyze`
+    every id is a paid LLM call. A refused request the caller can retry in pages is better than one
+    that quietly spends a lot of money.
+    """
+
+    action: Literal["resolve", "analyze"]
+    incident_ids: list[uuid.UUID] = Field(min_length=1, max_length=25)
+    #: Only meaningful for `resolve`.
+    resolution_notes: str | None = None

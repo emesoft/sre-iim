@@ -1,39 +1,45 @@
-import { useState } from 'react'
-import { Eye, EyeOff, ShieldAlert } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { Eye, EyeOff } from 'lucide-react'
 import { errText } from '../lib/api'
 import { Button } from '../components/ui/Button'
+import { BrandMark } from '../components/ui/BrandMark'
+import { OrchestrationMap } from '../components/OrchestrationMap'
+import { loadEntraConfig } from '../lib/entra'
 
 const inputClass =
-  'w-full rounded-xl border border-transparent bg-surface-2 px-4 py-3 text-sm text-ink ' +
-  'placeholder:text-muted outline-none transition focus:border-accent focus:bg-surface ' +
-  'focus:ring-2 focus:ring-[var(--accent-weak)]'
+  'w-full rounded-xl border border-[var(--login-hair)] bg-white/5 px-4 py-3 text-sm text-[var(--login-text)] ' +
+  'placeholder:text-[var(--login-text-dim)] outline-none transition focus:border-[var(--login-accent)] ' +
+  'focus:bg-white/[0.07] focus:ring-2 focus:ring-[var(--login-accent-weak)]'
 
-/** IIM logo chip — the gradient shield used across the app's brand marks. */
-function LogoChip({ size = 40 }: { size?: number }) {
+/** Microsoft's brand mark — four squares, drawn rather than loaded so the sign-in screen keeps
+ * working with no network beyond our own origin. */
+function MicrosoftLogo({ size = 16 }: { size?: number }) {
   return (
-    <span
-      className="flex items-center justify-center rounded-xl text-white shadow-rail"
-      style={{
-        width: size,
-        height: size,
-        background: 'linear-gradient(135deg, var(--accent), var(--purple))',
-      }}
-    >
-      <ShieldAlert size={size * 0.5} strokeWidth={2.2} />
-    </span>
+    <svg width={size} height={size} viewBox="0 0 21 21" aria-hidden>
+      <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+      <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+      <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+    </svg>
   )
 }
 
 /**
- * The sign-in screen — a full-bleed, macOS-style split. Left: a dark-indigo panel carrying the
- * IIM identity and its thesis. Right: the sign-in form, held to a readable column. Both halves fill
- * the viewport; below `md` the brand panel drops away and the form stands alone. `onSignIn` calls
- * the real `POST /api/auth/login` (see lib/auth.ts) and rejects on bad credentials.
+ * The sign-in screen — a fixed dark treatment independent of the app's light/dark toggle
+ * (Emesoft red on near-black, matching the company mark), split macOS-style. Left: the product
+ * diagram; right: the sign-in card.
+ *
+ * Two ways in, both ending in the same application JWT: `onSignIn` posts username/password to
+ * `/api/auth/login`, and `onSignInWithMicrosoft` runs the Entra popup and exchanges its ID token
+ * at `/api/auth/entra`. The Microsoft button only appears when the server reports an app
+ * registration is configured.
  */
 export function Login({
   onSignIn,
+  onSignInWithMicrosoft,
 }: {
   onSignIn: (username: string, password: string, remember: boolean) => Promise<void>
+  onSignInWithMicrosoft: (remember: boolean) => Promise<void>
 }) {
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -41,6 +47,29 @@ export function Login({
   const [show, setShow] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Only offered when the server actually has an Entra app registration — a button that always
+  // fails is worse than no button.
+  const [ssoEnabled, setSsoEnabled] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    loadEntraConfig().then((c) => alive && setSsoEnabled(c.enabled))
+    return () => {
+      alive = false
+    }
+  }, [])
+
+  const signInWithMicrosoft = async () => {
+    setError(null)
+    setSubmitting(true)
+    try {
+      await onSignInWithMicrosoft(remember)
+    } catch (e) {
+      setError(errText(e))
+    } finally {
+      setSubmitting(false)
+    }
+  }
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -56,130 +85,157 @@ export function Login({
   }
 
   return (
-    <div className="grid min-h-full md:grid-cols-2">
-      {/* Brand panel — carries the IIM identity and product thesis. */}
+    <div className="grid min-h-full md:grid-cols-2" style={{ background: 'var(--login-bg)' }}>
+      {/* Brand panel — the product thesis, then the map of what IIM takes in and puts out. */}
       <aside
-        className="relative hidden flex-col justify-between overflow-hidden p-10 text-white md:flex lg:p-14"
+        className="relative hidden flex-col justify-between overflow-hidden p-10 text-[var(--login-text)] md:flex lg:p-12"
         style={{
           background:
-            'linear-gradient(150deg, var(--accent-strong), var(--accent) 52%, var(--purple))',
+            'radial-gradient(60rem 30rem at 15% 0%, color-mix(in srgb, var(--login-accent) 16%, transparent), transparent 65%), var(--login-panel)',
         }}
       >
-        {/* Ambient glow orbs for macOS-style depth. */}
-        <div className="pointer-events-none absolute -right-16 -top-16 h-56 w-56 rounded-full bg-white/15 blur-3xl" />
-        <div className="pointer-events-none absolute -bottom-20 -left-10 h-56 w-56 rounded-full bg-white/10 blur-3xl" />
-
-        {/* Top: brand lockup, nudged down off the corner. */}
-        <div className="relative mt-8 flex items-center gap-2.5">
-          <LogoChip />
-          <div className="leading-tight">
-            <div className="font-display text-xl font-extrabold tracking-tight">IIM</div>
-            <div className="text-xs font-medium text-white/70">
-              Intelligent Incident Management
-            </div>
-          </div>
+        <div className="relative">
+          <BrandMark variant="full" height={40} />
         </div>
 
-        {/* Centre: the product thesis — the panel's focal point. */}
         <div className="relative">
-          <h2 className="font-display text-4xl font-extrabold leading-[1.1] tracking-tight lg:text-5xl">
+          <h2 className="font-display text-4xl font-extrabold leading-[1.05] tracking-tight">
             What&rsquo;s on fire,
             <br />
             and why.
           </h2>
-          <p className="mt-5 max-w-sm text-base leading-relaxed text-white/75">
-            AI root-cause triage, grounded in your own runbooks and postmortems — the full picture
-            in under a minute.
+          <p className="mt-4 max-w-sm text-[15px] leading-relaxed text-[var(--login-text-dim)]">
+            AI root-cause triage for IIM, grounded in your own runbooks and postmortems — the full
+            picture in under a minute.
           </p>
+
+          <div className="mx-auto mt-6 hidden w-full max-w-[520px] lg:block">
+            <OrchestrationMap />
+          </div>
         </div>
 
-        <p className="relative text-xs font-medium text-white/55">Local incident console · v0.1</p>
+        <p className="relative text-xs font-medium text-[var(--login-text-dim)]">
+          Made by Cloud team · v0.1
+        </p>
       </aside>
 
-      {/* Sign-in form — held to a readable column, centred in the panel. */}
-      <div className="flex items-center justify-center bg-surface px-6 py-12 sm:px-10">
-        <div className="animate-in w-full max-w-lg">
+      {/* Sign-in form — a card floating on the dark ground, centred in the panel. */}
+      <div className="flex items-center justify-center px-6 py-12 sm:px-10">
+        <div className="animate-in w-full max-w-md">
           {/* Compact brand for small screens (the brand panel is hidden below md). */}
-          <div className="mb-8 flex items-center gap-3 md:hidden">
-            <LogoChip size={36} />
-            <div className="font-display text-lg font-extrabold tracking-tight text-ink">IIM</div>
+          <div className="mb-8 md:hidden">
+            <BrandMark variant="wordmark" height={26} />
           </div>
 
-          <h1 className="font-display text-2xl font-extrabold tracking-tight text-ink">
-            Welcome back
-          </h1>
-          <p className="mt-1 text-sm text-ink-2">Sign in to your incident console.</p>
+          <div
+            className="rounded-2xl border p-8 shadow-2xl"
+            style={{ background: 'var(--login-card)', borderColor: 'var(--login-hair)' }}
+          >
+            <h1 className="font-display text-2xl font-extrabold tracking-tight text-[var(--login-text)]">
+              Welcome back
+            </h1>
+            <p className="mt-1 text-sm text-[var(--login-text-dim)]">Sign in to your incident console.</p>
 
-          <form className="mt-7 space-y-4" onSubmit={submit}>
-            <div className="space-y-1">
-              <label htmlFor="username" className="text-xs font-medium text-ink-2">
-                Username
-              </label>
-              <input
-                id="username"
-                type="text"
-                autoComplete="username"
-                required
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="jdoe"
-                className={inputClass}
-              />
-            </div>
+            {ssoEnabled && (
+              <>
+                <button
+                  type="button"
+                  onClick={signInWithMicrosoft}
+                  disabled={submitting}
+                  className="mt-6 flex w-full items-center justify-center gap-2.5 rounded-xl border border-[var(--login-hair)] bg-white/[0.06] px-4 py-3 text-sm font-semibold text-[var(--login-text)] transition hover:bg-white/[0.1] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <MicrosoftLogo /> Sign in with Microsoft
+                </button>
+                <div className="mt-5 flex items-center gap-3">
+                  <span className="h-px flex-1 bg-[var(--login-hair)]" />
+                  <span className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--login-text-dim)]">
+                    or
+                  </span>
+                  <span className="h-px flex-1 bg-[var(--login-hair)]" />
+                </div>
+              </>
+            )}
 
-            <div className="space-y-1">
-              <label htmlFor="password" className="text-xs font-medium text-ink-2">
-                Password
-              </label>
-              <div className="relative">
+            <form className="mt-6 space-y-4" onSubmit={submit}>
+              <div className="space-y-1">
+                <label htmlFor="username" className="text-xs font-medium text-[var(--login-text-dim)]">
+                  Username
+                </label>
                 <input
-                  id="password"
-                  type={show ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  id="username"
+                  type="text"
+                  autoComplete="username"
                   required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter password"
-                  className={`${inputClass} pr-11`}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="jdoe"
+                  className={inputClass}
                 />
-                <button
-                  type="button"
-                  onClick={() => setShow((s) => !s)}
-                  aria-label={show ? 'Hide password' : 'Show password'}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-muted transition hover:text-ink-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                >
-                  {show ? <EyeOff size={16} /> : <Eye size={16} />}
-                </button>
               </div>
-            </div>
 
-            <div className="flex items-center justify-between">
-              <label className="flex cursor-pointer select-none items-center gap-2.5">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={remember}
-                  onClick={() => setRemember((r) => !r)}
-                  className={`relative h-5 w-9 shrink-0 rounded-full transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-surface ${
-                    remember ? 'bg-accent' : 'border border-hair bg-surface-2'
-                  }`}
-                >
-                  <span
-                    className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
-                      remember ? 'left-[18px]' : 'left-0.5'
-                    }`}
+              <div className="space-y-1">
+                <label htmlFor="password" className="text-xs font-medium text-[var(--login-text-dim)]">
+                  Password
+                </label>
+                <div className="relative">
+                  <input
+                    id="password"
+                    type={show ? 'text' : 'password'}
+                    autoComplete="current-password"
+                    required
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter password"
+                    className={`${inputClass} pr-11`}
                   />
-                </button>
-                <span className="text-sm text-ink-2">Remember me</span>
-              </label>
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => setShow((s) => !s)}
+                    aria-label={show ? 'Hide password' : 'Show password'}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1.5 text-[var(--login-text-dim)] transition hover:text-[var(--login-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--login-accent)]"
+                  >
+                    {show ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+              </div>
 
-            {error && <p className="text-sm text-sev-critical">{error}</p>}
+              <div className="flex items-center justify-between">
+                <label className="flex cursor-pointer select-none items-center gap-2.5">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={remember}
+                    onClick={() => setRemember((r) => !r)}
+                    className="relative h-5 w-9 shrink-0 rounded-full border transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--login-accent)] focus-visible:ring-offset-2"
+                    style={{
+                      background: remember ? 'var(--login-accent)' : 'rgba(255,255,255,0.08)',
+                      borderColor: remember ? 'var(--login-accent)' : 'var(--login-hair)',
+                    }}
+                  >
+                    <span
+                      className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-all ${
+                        remember ? 'left-[18px]' : 'left-0.5'
+                      }`}
+                    />
+                  </button>
+                  <span className="text-sm text-[var(--login-text-dim)]">Remember me</span>
+                </label>
+              </div>
 
-            <Button type="submit" className="w-full py-3" disabled={submitting}>
-              {submitting ? 'Signing in…' : 'Sign in'}
-            </Button>
-          </form>
+              {error && <p className="text-sm text-[var(--sev-critical)]">{error}</p>}
+
+              <Button
+                type="submit"
+                className="w-full border-0 py-3 text-white"
+                disabled={submitting}
+                style={{
+                  background: 'linear-gradient(135deg, var(--login-accent), var(--login-accent-strong))',
+                }}
+              >
+                {submitting ? 'Signing in…' : 'Sign in'}
+              </Button>
+            </form>
+          </div>
         </div>
       </div>
     </div>

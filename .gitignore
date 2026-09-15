@@ -54,3 +54,8 @@ AGENTS.md
 harness.db
 harness.db-*
 .harness/
+# pg_dump output taken before migrations — contains encrypted AWS/ADO credentials and password
+# hashes. Never commit these. This line was once appended to the end of `.harness/` (which had no
+# trailing newline), producing the single path `.harness/.backups/` and silently un-ignoring both.
+.backups/
+

@@ -37,6 +37,14 @@ class SqlAlchemyProjectRepository:
         rows = (await self._s.execute(select(ProjectRow))).scalars().all()
         return [project_to_domain(row) for row in rows]
 
+    async def set_auto_analyze(self, project_id: uuid.UUID, enabled: bool) -> Project:
+        row = await self._s.get(ProjectRow, project_id)
+        if row is None:
+            raise ValueError(f"project {project_id} not found")
+        row.auto_analyze = enabled
+        await self._s.flush()
+        return project_to_domain(row)
+
     async def delete(self, project_id: uuid.UUID) -> None:
         row = await self._s.get(ProjectRow, project_id)
         if row is not None:

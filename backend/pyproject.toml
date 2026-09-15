@@ -29,6 +29,7 @@ dependencies = [
     # Per-user auth (JWT access tokens + bcrypt password hashing).
     "pyjwt>=2.9",
     "bcrypt>=4.2",
+    "anthropic>=0.40",
 ]
 
 [dependency-groups]

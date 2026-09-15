@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import uuid
 
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,12 +35,30 @@ class SqlAlchemyChatRepository:
         if row is not None:
             row.claude_session_id = claude_session_id
 
+    async def clear(self, incident_id: uuid.UUID) -> None:
+        """Drop the transcript and the provider session for one incident.
+
+        Needed because a session outlives the code that started it. The chat system prompt — the
+        part that names the investigation tools — is only sent on a session's first turn, so a
+        conversation begun before a tool existed never learns about it and answers "I have no way
+        to check" forever. Starting over is the only way back, and deleting is honest about what
+        it does rather than leaving a dead transcript on screen.
+        """
+        await self._s.execute(
+            sa_delete(ChatMessageRow).where(ChatMessageRow.incident_id == incident_id)
+        )
+        await self._s.execute(
+            sa_delete(ChatSessionRow).where(ChatSessionRow.incident_id == incident_id)
+        )
+        await self._s.flush()
+
     async def add_message(self, message: ChatMessage) -> ChatMessage:
         row = ChatMessageRow(
             incident_id=message.incident_id,
             role=message.role,
             content=message.content,
             input_tokens=message.input_tokens,
+            cached_input_tokens=message.cached_input_tokens,
             output_tokens=message.output_tokens,
         )
         self._s.add(row)

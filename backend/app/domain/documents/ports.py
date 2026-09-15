@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from typing import Protocol
 
 from app.domain.documents.entities import Document, EmbeddedChunk, EvidenceRef, RetrievedChunk
@@ -21,7 +22,7 @@ class DocumentRepository(Protocol):
 
     async def add(self, document: Document, chunks: list[EmbeddedChunk]) -> Document: ...
 
-    async def list(self) -> list[tuple[Document, int]]:
+    async def list(self, *, projects: Sequence[str] | None = None) -> list[tuple[Document, int]]:
         """Return each document with its chunk count, newest first."""
         ...
 

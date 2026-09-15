@@ -2,6 +2,7 @@ import { Bell, Search } from 'lucide-react'
 import { HealthPill } from '../HealthPill'
 import { ThemeToggle } from '../ThemeToggle'
 import type { Theme } from '../../lib/theme'
+import type { EffectiveRole } from '../../lib/types'
 
 export function TopBar({
   query,
@@ -10,6 +11,9 @@ export function TopBar({
   onBellClick,
   theme,
   onToggleTheme,
+  username,
+  email,
+  role,
 }: {
   query: string
   onQueryChange: (v: string) => void
@@ -17,7 +21,11 @@ export function TopBar({
   onBellClick: () => void
   theme: Theme
   onToggleTheme: () => void
+  username: string | null
+  email: string | null | undefined
+  role: EffectiveRole | null
 }) {
+  const initials = (username ?? email ?? '?').slice(0, 2).toUpperCase()
   return (
     <header className="z-20 flex items-center gap-4 border-b border-hair bg-surface/85 px-4 py-3 backdrop-blur md:px-8">
       <div className="relative w-full max-w-xl">
@@ -61,11 +69,11 @@ export function TopBar({
             className="flex h-7 w-7 items-center justify-center rounded-lg text-xs font-bold text-white"
             style={{ background: 'linear-gradient(135deg, var(--accent), var(--purple))' }}
           >
-            OC
+            {initials}
           </span>
           <div className="hidden leading-tight lg:block">
-            <div className="text-xs font-bold text-ink">On-call</div>
-            <div className="text-[10px] text-muted">Local session</div>
+            <div className="text-xs font-bold text-ink">{username ?? 'Signed in'}</div>
+            <div className="text-[10px] capitalize text-muted">{role ?? 'unknown role'}</div>
           </div>
         </div>
       </div>

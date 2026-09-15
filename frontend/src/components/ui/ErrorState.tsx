@@ -1,5 +1,6 @@
-import { AlertOctagon, PlugZap, RefreshCw } from 'lucide-react'
+import { RefreshCw } from 'lucide-react'
 import { Button } from './Button'
+import { Sparky } from '../Sparky'
 
 /**
  * The designed failure state — two variants sharing one layout. `unreachable` (the common case:
@@ -22,15 +23,7 @@ export function ErrorState({
     <div
       className={`flex flex-col items-center justify-center rounded-2xl border border-hair bg-surface px-6 py-14 text-center shadow-card ${className}`}
     >
-      <span
-        className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl"
-        style={{
-          background: 'color-mix(in srgb, var(--sev-critical) 14%, transparent)',
-          color: 'var(--sev-critical)',
-        }}
-      >
-        {unreachable ? <PlugZap size={26} /> : <AlertOctagon size={26} />}
-      </span>
+      <Sparky size={64} mood="alert" className="mb-4" />
       <h3 className="font-display text-base font-bold text-ink">
         {unreachable ? 'Can’t reach the backend' : 'Request failed'}
       </h3>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { getAuthToken } from './api'
 import type { IncidentDetail, StageEvent } from './types'
 
 export interface IncidentStreamState {
@@ -22,7 +23,11 @@ export function useIncidentStream(incidentId: string | null): IncidentStreamStat
     setState(IDLE)
     if (!incidentId) return
 
-    const source = new EventSource(`/api/incidents/${incidentId}/stream`)
+    // EventSource can't send an Authorization header, so the JWT rides along as a query param
+    // instead (get_current_user in deps.py accepts either) — see that function's docstring.
+    const token = getAuthToken()
+    const url = `/api/incidents/${incidentId}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`
+    const source = new EventSource(url)
 
     source.addEventListener('stage', (e) => {
       const data = JSON.parse((e as MessageEvent).data) as StageEvent

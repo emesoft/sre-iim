@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Signing in…</title>
+    <style>
+      body {
+        margin: 0;
+        display: grid;
+        place-items: center;
+        min-height: 100vh;
+        padding: 24px;
+        text-align: center;
+        background: #0b1020;
+        color: #94a3b8;
+        font: 14px/1.6 system-ui, -apple-system, sans-serif;
+      }
+      #error { display: none; max-width: 48ch; }
+      #error h1 { margin: 0 0 8px; font-size: 15px; color: #f8fafc; }
+      code { color: #e2e8f0; word-break: break-all; }
+    </style>
+  </head>
+  <body>
+    <div>
+      <p id="waiting">Signing you in — this window closes itself.</p>
+      <div id="error">
+        <h1>Sign-in couldn’t be completed</h1>
+        <p><code id="detail"></code></p>
+      </div>
+    </div>
+    <script type="module" src="/src/auth-callback.ts"></script>
+  </body>
+</html>

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Check, Clipboard, FileText, ListChecks, Sparkles } from 'lucide-react'
 import { api, errText, isUnreachable } from '../lib/api'
 import type { DailyReportOut, IncidentSummary } from '../lib/types'
@@ -34,12 +34,13 @@ export function Reports({ incidents }: { incidents: IncidentSummary[] }) {
     [incidents],
   )
 
-  const generate = () => {
+  const fetchReport = (force: boolean) => {
     setLoading(true)
     setErr(null)
     setCopied(false)
     const params = new URLSearchParams({ date })
     if (project !== ALL_PROJECTS) params.set('service', project)
+    if (force) params.set('force', 'true')
     api
       .get<DailyReportOut>(`/api/reports/daily?${params}`)
       .then(setReport)
@@ -49,6 +50,16 @@ export function Reports({ incidents }: { incidents: IncidentSummary[] }) {
       })
       .finally(() => setLoading(false))
   }
+
+  // Load automatically on mount and whenever date/project changes — a previously generated report
+  // shows immediately without making the user click "Generate report" again on every visit. The
+  // button below is then only for an explicit "Regenerate report".
+  useEffect(() => {
+    setReport(null)
+    setErr(null)
+    fetchReport(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date, project])
 
   const copy = () => {
     if (!report) return
@@ -87,7 +98,7 @@ export function Reports({ incidents }: { incidents: IncidentSummary[] }) {
               </select>
             </label>
           </div>
-          <Button onClick={generate} disabled={loading}>
+          <Button onClick={() => fetchReport(true)} disabled={loading}>
             <Sparkles size={15} />
             {loading ? 'Generating…' : report ? 'Regenerate report' : 'Generate report'}
           </Button>
@@ -104,7 +115,7 @@ export function Reports({ incidents }: { incidents: IncidentSummary[] }) {
           <EmptyState
             icon={FileText}
             title="No report yet"
-            hint="Pick a date and project, then click Generate report."
+            hint="Pick a date and project to see its digest."
             className="mt-3 border-0 py-12"
           />
         ) : (
@@ -155,7 +166,7 @@ export function Reports({ incidents }: { incidents: IncidentSummary[] }) {
                     >
                       <span className="font-mono text-xs text-muted">{incidentRef(i.id)}</span>
                       <span className="font-medium text-ink">{i.service}</span>
-                      <SeverityBadge severity={i.severity} size="xs" />
+                      <SeverityBadge severity={i.severity} status={i.status} size="xs" />
                       <StatusBadge status={i.status} />
                       <span className="flex-1 truncate text-ink-2">{i.summary}</span>
                       {i.ticket_url && (

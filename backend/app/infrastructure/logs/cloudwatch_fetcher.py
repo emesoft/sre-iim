@@ -35,20 +35,38 @@ _DEFAULT_QUERY = (
 class CloudWatchLogFetcher:
     """LogFetcher backed by CloudWatch Logs Insights (`logs:StartQuery`/`GetQueryResults`).
 
-    `profile` is an AWS SSO profile name (e.g. "GCM-Prod-ReadOnlyAccess") from `~/.aws/config`;
-    `None` falls back to the default credential chain. If the SSO session has expired, boto3
-    raises clearly (`UnauthorizedSSOTokenError`) — the fix is for the SRE to run `aws sso login
-    --profile <name>` on the host, not something this adapter can resolve itself.
+    Credentials come from one of two places, and `session` is the one to prefer:
+
+    - **`session`** — a `boto3.Session` already built by `CredentialResolver` from the project's
+      `integrations` row. This is how the other AWS tools authenticate, and it is the only option
+      that works on a machine with nothing configured: an `sso_oidc` integration mints its own
+      short-lived credentials and renews them.
+    - **`profile`** — an SSO profile name from the host's `~/.aws/config`, mounted read-only. It
+      only works on a host somebody keeps signed in from a terminal, and the read-only mount means
+      this container can never renew the token. Kept for the `PROJECT_<SERVICE>_*` config path.
+
+    `None` for both falls back to boto3's default credential chain.
     """
 
-    def __init__(self, *, region: str, profile: str | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        region: str,
+        profile: str | None = None,
+        session: "boto3.Session | None" = None,
+    ) -> None:
         self._region = region
         self._profile = profile
+        self._session = session
         self._client = None
 
     def _get_client(self):
         if self._client is None:
-            session = boto3.Session(profile_name=self._profile) if self._profile else boto3.Session()
+            session = self._session
+            if session is None:
+                session = (
+                    boto3.Session(profile_name=self._profile) if self._profile else boto3.Session()
+                )
             self._client = session.client("logs", region_name=self._region)
         return self._client
 

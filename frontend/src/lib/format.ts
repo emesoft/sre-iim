@@ -24,3 +24,4 @@ export function shortRef(id: string): string {
 export function incidentRef(id: string): string {
   return `INC-${shortRef(id)}`
 }
+

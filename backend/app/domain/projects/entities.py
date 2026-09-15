@@ -15,5 +15,8 @@ class Project:
     """One registered internal project name (e.g. 'EVP', 'rxdevs')."""
 
     name: str
+    # When False, AutoAnalyzeIncidents skips this project's incidents — they still get created and
+    # can still be analyzed by hand, they just don't spend an LLM call on their own.
+    auto_analyze: bool = True
     id: uuid.UUID | None = None
     created_at: datetime | None = None

@@ -5,12 +5,36 @@ import { timeAgo } from '../lib/format'
 
 interface Event {
   key: string
+  /** Adjacent events sharing this key collapse into one row. Absent = never collapse. */
+  groupKey?: string
+  count: number
   icon: LucideIcon
   color: string
   action: string
   subject: string
   detail: string
   at: string
+}
+
+/**
+ * Collapses a run of adjacent events that say the same thing about the same service into one
+ * line. A cloud poll opens several incidents from one connection at once, which used to fill the
+ * whole feed with identical "Incident ingested / gcm / Pending severity" rows — the repetition
+ * was the only thing visible, and the document events below them got pushed out of the list.
+ * Only *adjacent* events merge, so the feed stays a true chronology.
+ */
+function collapseRuns(events: Event[]): Event[] {
+  const out: Event[] = []
+  for (const e of events) {
+    const prev = out[out.length - 1]
+    if (prev && prev.groupKey && prev.groupKey === e.groupKey) {
+      prev.count += 1
+      prev.action = `${prev.count} incidents ingested`
+      continue
+    }
+    out.push({ ...e })
+  }
+  return out
 }
 
 /**
@@ -27,31 +51,34 @@ export function ActivityFeed({
   docs: DocumentSummary[]
   limit?: number
 }) {
-  const events: Event[] = [
-    ...incidents.map((i) => {
-      const m = severityMeta(i.severity)
-      return {
-        key: `i-${i.id}`,
-        icon: AlertTriangle,
-        color: m.color,
-        action: 'Incident ingested',
-        subject: i.service,
-        detail: `${m.label} severity`,
-        at: i.created_at,
-      }
-    }),
-    ...docs.map((d) => ({
-      key: `d-${d.id}`,
-      icon: FileText,
-      color: 'var(--info)',
-      action: 'Document indexed',
-      subject: d.title,
-      detail: `${d.chunk_count} chunk${d.chunk_count === 1 ? '' : 's'} · ${d.source_type}`,
-      at: d.created_at,
-    })),
-  ]
-    .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
-    .slice(0, limit)
+  const events: Event[] = collapseRuns(
+    [
+      ...incidents.map((i) => {
+        const m = severityMeta(i.severity)
+        return {
+          key: `i-${i.id}`,
+          groupKey: `i-${i.service}-${m.label}`,
+          count: 1,
+          icon: AlertTriangle,
+          color: m.color,
+          action: 'Incident ingested',
+          subject: i.service,
+          detail: `${m.label} severity`,
+          at: i.created_at,
+        }
+      }),
+      ...docs.map((d) => ({
+        key: `d-${d.id}`,
+        count: 1,
+        icon: FileText,
+        color: 'var(--info)',
+        action: 'Document indexed',
+        subject: d.title,
+        detail: `${d.chunk_count} chunk${d.chunk_count === 1 ? '' : 's'} · ${d.source_type}`,
+        at: d.created_at,
+      })),
+    ].sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime()),
+  ).slice(0, limit)
 
   if (events.length === 0) {
     return <p className="py-8 text-center text-sm text-muted">No activity yet.</p>

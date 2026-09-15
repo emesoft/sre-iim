@@ -36,7 +36,9 @@ async def test_analyzer_returns_a_draft_from_the_cli_response(monkeypatch):
 
     async def fake_call(*, prompt, system_prompt, model, token):
         calls.append({"prompt": prompt, "system_prompt": system_prompt, "model": model, "token": token})
-        return claude_cli._CliResult(text=_ANALYSIS_JSON, input_tokens=120, output_tokens=45)
+        return claude_cli._CliResult(
+            text=_ANALYSIS_JSON, input_tokens=120, cached_input_tokens=4400, output_tokens=45
+        )
 
     async def fake_get_token(settings):
         return "test-token"
@@ -59,7 +61,9 @@ async def test_analyzer_returns_a_draft_from_the_cli_response(monkeypatch):
 
 async def test_analyzer_raises_analysis_error_on_bad_json(monkeypatch):
     async def fake_call(**_kwargs):
-        return claude_cli._CliResult(text="not json", input_tokens=None, output_tokens=None)
+        return claude_cli._CliResult(
+            text="not json", input_tokens=None, cached_input_tokens=None, output_tokens=None
+        )
 
     async def fake_get_token(settings):
         return "test-token"
@@ -87,7 +91,7 @@ async def test_chat_model_returns_the_cli_result_text(monkeypatch):
     async def fake_call(*, prompt, system_prompt, model, token):
         assert prompt == "user question"
         assert system_prompt == "be terse"
-        return claude_cli._CliResult(text="42", input_tokens=10, output_tokens=2)
+        return claude_cli._CliResult(text="42", input_tokens=10, cached_input_tokens=0, output_tokens=2)
 
     async def fake_get_token(settings):
         return "test-token"
@@ -156,9 +160,11 @@ async def test_call_claude_cli_parses_usage_from_the_subprocess_json(monkeypatch
     assert result.output_tokens == 80
 
 
-async def test_call_claude_cli_includes_cache_tokens_in_input_tokens(monkeypatch):
-    """--safe-mode still caches most of the prompt across calls in the same OAuth session — that
-    shows up as cache_read/cache_creation, not input_tokens, but it's still real spend."""
+async def test_call_claude_cli_reports_cache_tokens_apart_from_fresh_input(monkeypatch):
+    """--safe-mode caches most of the prompt across calls in the same OAuth session, so cache_read
+    and cache_creation dwarf input_tokens. They are real spend and must be recorded — but at a
+    fraction of the price, and re-read every turn, so summing them into `input_tokens` reported a
+    chat turn as "92,897 in" when 2 tokens were actually fresh."""
     payload = (
         '{"result": "hello", "is_error": false, "usage": {'
         '"input_tokens": 2, "cache_read_input_tokens": 4461, '
@@ -180,7 +186,8 @@ async def test_call_claude_cli_includes_cache_tokens_in_input_tokens(monkeypatch
         prompt="p", system_prompt=None, model="sonnet", token="t"
     )
 
-    assert result.input_tokens == 2 + 4461 + 100
+    assert result.input_tokens == 2
+    assert result.cached_input_tokens == 4461 + 100
     assert result.output_tokens == 13
 
 
@@ -230,7 +237,10 @@ async def test_chat_sends_session_id_for_a_new_session(monkeypatch):
         mode = oct(os.stat(mcp_config_path).st_mode)[-3:]
         with open(mcp_config_path) as f:
             mcp_configs_at_call_time.append((mcp_config_path, mode, json.load(f)))
-        return claude_cli._CliResult(text="answer", input_tokens=50, output_tokens=20)
+        return claude_cli._CliResult(
+            text="answer", input_tokens=50, cached_input_tokens=0,
+            output_tokens=20,
+        )
 
     async def fake_get_token(settings):
         return "test-token"
@@ -256,7 +266,11 @@ async def test_chat_sends_session_id_for_a_new_session(monkeypatch):
     assert "--resume" not in calls[0]
     assert "--mcp-config" in calls[0]
     assert "--strict-mcp-config" in calls[0]
-    assert "mcp__iim-tools__fetch_logs" in calls[0]
+    # One comma-joined `--allowedTools` value now, not a single tool name: chat can also read
+    # alarms, metrics and ECS state. A tool missing from it is silently uncallable.
+    allowed = calls[0][calls[0].index("--allowedTools") + 1].split(",")
+    assert "mcp__iim-tools__fetch_logs" in allowed
+    assert "mcp__iim-tools__ecs_service_state" in allowed
 
     # The MCP config is written to a restricted-permission file, not inlined as an argv string
     # (argv is visible to other processes via /proc/<pid>/cmdline or `ps aux`), and is cleaned up
@@ -267,10 +281,19 @@ async def test_chat_sends_session_id_for_a_new_session(monkeypatch):
     assert not os.path.exists(mcp_config_path)  # cleaned up by _run_turn's `finally`
     mcp_env = mcp_config["mcpServers"]["iim-tools"]["env"]
     assert mcp_env["IIM_INCIDENT_SERVICE"] == "GCM"
-    # Secrets from the parent process env must never reach the MCP tool subprocess.
-    assert "DATABASE_URL" not in mcp_env
-    assert "SECRET_ENCRYPTION_KEY" not in mcp_env
+    # DATABASE_URL and SECRET_ENCRYPTION_KEY *are* forwarded, and this assertion used to say the
+    # opposite. Withholding them did not make the subprocess safer, it made it non-functional:
+    # all four tools look the project's `integrations` row up and decrypt its credentials, and
+    # both settings have plausible defaults ("...@localhost:5432/iim" and ""), so the failure
+    # surfaced as "Connect call failed" rather than as missing configuration. Every AWS tool
+    # failed 100% of the time while looking like an AWS problem.
+    assert mcp_env["DATABASE_URL"]
+    assert mcp_env["SECRET_ENCRYPTION_KEY"]
+    # The allowlist is still an allowlist: nothing reaches the subprocess that it has no use for,
+    # and the file carrying these values is 0600 and unlinked above.
     assert "ANTHROPIC_API_KEY" not in mcp_env
+    assert "JWT_SECRET_KEY" not in mcp_env
+    assert "ENTRA_CLIENT_ID" not in mcp_env
 
 
 async def test_chat_resumes_an_existing_session(monkeypatch):
@@ -278,7 +301,10 @@ async def test_chat_resumes_an_existing_session(monkeypatch):
 
     async def fake_run_cli(cmd, token):
         calls.append(cmd)
-        return claude_cli._CliResult(text="follow-up answer", input_tokens=5, output_tokens=3)
+        return claude_cli._CliResult(
+            text="follow-up answer", input_tokens=5, cached_input_tokens=0,
+            output_tokens=3,
+        )
 
     async def fake_get_token(settings):
         return "test-token"
@@ -305,7 +331,10 @@ async def test_chat_falls_back_to_a_fresh_session_when_resume_fails(monkeypatch)
         calls.append(cmd)
         if "--resume" in cmd:
             raise RuntimeError("claude CLI failed: No conversation found with session ID")
-        return claude_cli._CliResult(text="fresh answer", input_tokens=1, output_tokens=1)
+        return claude_cli._CliResult(
+            text="fresh answer", input_tokens=1, cached_input_tokens=0,
+            output_tokens=1,
+        )
 
     async def fake_get_token(settings):
         return "test-token"

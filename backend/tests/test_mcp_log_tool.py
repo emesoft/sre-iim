@@ -1,5 +1,5 @@
 """Unit tests for the fetch_logs MCP tool function — calls it directly (no MCP transport, no
-subprocess), monkeypatching build_log_fetcher so no real AWS/demo call happens.
+subprocess), monkeypatching resolve_log_fetcher so no real AWS/demo call happens.
 
 Note: the installed `mcp` package (1.29.0, pinned <2 — see pyproject.toml) has `@mcp.tool()`
 return the original async function unchanged rather than wrapping it in a `Tool` object, so
@@ -20,6 +20,15 @@ from app.infrastructure.llm import mcp_log_tool
 pytestmark = pytest.mark.asyncio
 
 
+def _fake_factory(fetcher):
+    """`resolve_log_fetcher` is async now — it looks the project's integration up in the DB."""
+
+    async def _factory(service, settings):
+        return fetcher
+
+    return _factory
+
+
 class _FakeFetcher:
     def __init__(self, events=None, raises=None):
         self._events = events or []
@@ -34,7 +43,7 @@ class _FakeFetcher:
 async def test_fetch_logs_returns_formatted_lines(monkeypatch):
     events = [LogEvent(timestamp=datetime(2026, 8, 23, 10, 0), message="boom", level="ERROR")]
     monkeypatch.setattr(
-        mcp_log_tool, "build_log_fetcher", lambda service, settings: _FakeFetcher(events=events)
+        mcp_log_tool, "resolve_log_fetcher", _fake_factory(_FakeFetcher(events=events))
     )
 
     result = await mcp_log_tool.fetch_logs(
@@ -47,7 +56,7 @@ async def test_fetch_logs_returns_formatted_lines(monkeypatch):
 
 async def test_fetch_logs_reports_no_matches(monkeypatch):
     monkeypatch.setattr(
-        mcp_log_tool, "build_log_fetcher", lambda service, settings: _FakeFetcher(events=[])
+        mcp_log_tool, "resolve_log_fetcher", _fake_factory(_FakeFetcher(events=[]))
     )
 
     result = await mcp_log_tool.fetch_logs(
@@ -60,8 +69,8 @@ async def test_fetch_logs_reports_no_matches(monkeypatch):
 async def test_fetch_logs_reports_fetcher_errors_as_text_not_a_crash(monkeypatch):
     monkeypatch.setattr(
         mcp_log_tool,
-        "build_log_fetcher",
-        lambda service, settings: _FakeFetcher(raises=RuntimeError("SSO token expired")),
+        "resolve_log_fetcher",
+        _fake_factory(_FakeFetcher(raises=RuntimeError("SSO token expired"))),
     )
 
     result = await mcp_log_tool.fetch_logs(

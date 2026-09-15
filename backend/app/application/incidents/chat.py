@@ -38,6 +38,7 @@ class IncidentChat:
             message=message,
             claude_session_id=session.claude_session_id,
             is_new_session=is_new_session,
+            history=existing,
         )
         if result.claude_session_id != session.claude_session_id:
             await self.chat.replace_session_id(incident.id, result.claude_session_id)
@@ -48,6 +49,7 @@ class IncidentChat:
                 role="assistant",
                 content=result.text,
                 input_tokens=result.input_tokens,
+                cached_input_tokens=result.cached_input_tokens,
                 output_tokens=result.output_tokens,
             )
         )

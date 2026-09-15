@@ -22,4 +22,9 @@ class ProjectRepository(Protocol):
 
     async def list(self) -> list[Project]: ...
 
+    async def set_auto_analyze(self, project_id: uuid.UUID, enabled: bool) -> Project:
+        """Pause/resume automatic triage for this project (see `Project.auto_analyze`).
+        Raises `ValueError` if the project doesn't exist."""
+        ...
+
     async def delete(self, project_id: uuid.UUID) -> None: ...

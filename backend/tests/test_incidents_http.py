@@ -14,7 +14,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.domain.ado_connections.entities import AdoConnection
+from app.domain.integrations.entities import TICKETS, Integration
 from app.domain.incidents.entities import AnalysisDraft
 from app.domain.users.entities import User
 from app.infrastructure.db.orm import (
@@ -27,7 +27,7 @@ from app.infrastructure.db.orm import (
     IncidentRow,
 )
 from app.interface.http.deps import (
-    get_ado_connection_repository,
+    get_integration_repository,
     get_ado_ticket_client_factory,
     get_base_analyzer,
     get_current_user,
@@ -87,14 +87,16 @@ class _FakeTicketClient:
         return "https://dev.azure.com/fake-org/fake-project/_workitems/edit/123"
 
 
-class _FakeAdoConnectionRepo:
-    """Every project has an (unused, fake) ADO connection configured — the tests exercise the
-    ticket-creation flow itself, not per-project ADO configuration."""
+class _FakeIntegrationRepo:
+    """Every project has an (unused, fake) ticketing integration — the tests exercise the
+    ticket-creation flow itself, not per-project configuration."""
 
-    async def get_by_project(self, project):
-        return AdoConnection(
-            id=uuid.uuid4(), project=project, org="fake-org", ado_project="fake-project",
-            encrypted_pat="unused",
+    async def for_project(self, project, capability):
+        assert capability == TICKETS
+        return Integration(
+            id=uuid.uuid4(), project=project, env="all", provider="azure_devops",
+            config={"organization": "fake-org", "ado_project": "fake-project"},
+            encrypted_secrets={"pat": "unused"}, capabilities=(TICKETS,),
         )
 
 
@@ -125,7 +127,7 @@ async def client():
     app.dependency_overrides[get_session] = _override_session
     app.dependency_overrides[get_base_analyzer] = lambda: _FakeAnalyzer()
     app.dependency_overrides[get_embedder] = lambda: _FakeEmbedder()
-    app.dependency_overrides[get_ado_connection_repository] = lambda: _FakeAdoConnectionRepo()
+    app.dependency_overrides[get_integration_repository] = lambda: _FakeIntegrationRepo()
     app.dependency_overrides[get_current_user] = lambda: _ADMIN_USER
     app.dependency_overrides[get_ado_ticket_client_factory] = lambda: (
         lambda connection: _FakeTicketClient()

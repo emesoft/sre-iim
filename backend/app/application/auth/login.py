@@ -25,7 +25,11 @@ class Login:
         user = await self.users.get_by_username(username)
         # Run verify_password even on a miss (against a dummy hash) so a nonexistent username
         # doesn't return faster than a wrong password — a cheap timing-based enumeration guard.
-        password_hash = user.password_hash if user is not None else _DUMMY_HASH
+        # An Entra-provisioned account has no local hash at all: it falls into the same branch,
+        # so it can never be authenticated here however the password field is filled in.
+        password_hash = (
+            user.password_hash if user is not None and user.password_hash else _DUMMY_HASH
+        )
         ok = verify_password(password, password_hash)
         if user is None or not ok:
             raise InvalidCredentialsError()

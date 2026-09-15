@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -45,13 +46,20 @@ class SqlAlchemyDocumentRepository:
         await self._s.flush()
         return document_to_domain(row)
 
-    async def list(self) -> list[tuple[Document, int]]:
+    async def list(self, *, projects: Sequence[str] | None = None) -> list[tuple[Document, int]]:
+        """`projects` is the caller's access scope (see domain/users/scope.py). A document with no
+        `service` is shared knowledge — vendor docs, general runbooks — and stays visible to
+        everyone; scoping it out would hide the material that is least project-specific."""
         stmt = (
             select(DocumentRow, func.count(DocChunkRow.id))
             .join(DocChunkRow, DocChunkRow.document_id == DocumentRow.id, isouter=True)
             .group_by(DocumentRow.id)
             .order_by(DocumentRow.created_at.desc())
         )
+        if projects is not None:
+            stmt = stmt.where(
+                or_(DocumentRow.service.is_(None), DocumentRow.service.in_(list(projects)))
+            )
         rows = (await self._s.execute(stmt)).all()
         return [(document_to_domain(doc), count) for doc, count in rows]
 

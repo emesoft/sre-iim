@@ -2,13 +2,14 @@
 
 import pytest
 
-from app.domain.cloud_connections.entities import CloudConnection
+from app.domain.integrations.entities import Integration
 from app.infrastructure.cloud.cloudwatch_alarms import CloudWatchAlarmFetcher
 
 pytestmark = pytest.mark.asyncio
 
-_CONNECTION = CloudConnection(
-    project="GCM", env="prod", region="ap-southeast-1", auth_type="sso", sso_profile_name="p"
+_CONNECTION = Integration(
+    project="GCM", env="prod", provider="aws",
+    config={"region": "ap-southeast-1", "auth_type": "sso", "sso_profile_name": "p"},
 )
 
 

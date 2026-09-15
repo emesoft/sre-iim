@@ -1,6 +1,7 @@
-import { LogOut, ShieldAlert } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { navSectionsForRole, type View } from '../../lib/nav'
-import type { Role } from '../../lib/types'
+import type { EffectiveRole } from '../../lib/types'
+import { Sparky } from '../Sparky'
 
 export function Sidebar({
   view,
@@ -14,21 +15,17 @@ export function Sidebar({
   onNavigate: (v: View) => void
   username: string | null
   email: string | null | undefined
-  role: Role | null
+  role: EffectiveRole | null
   onSignOut: () => void
 }) {
   const initials = (username ?? email ?? '?').slice(0, 2).toUpperCase()
   const sections = navSectionsForRole(role)
   return (
     <aside className="hidden w-64 shrink-0 flex-col bg-rail text-rail-text md:flex">
-      {/* Brand */}
+      {/* Brand — the product's own mark inside the app; the company logo stays on the sign-in
+          screen, with a credit line in the footer below. */}
       <div className="flex items-center gap-3 px-5 py-5">
-        <span
-          className="flex h-10 w-10 items-center justify-center rounded-xl text-white shadow-rail"
-          style={{ background: 'linear-gradient(135deg, var(--accent), var(--purple))' }}
-        >
-          <ShieldAlert size={20} strokeWidth={2.2} />
-        </span>
+        <Sparky size={36} className="shrink-0" />
         <div className="leading-tight">
           <div className="font-display text-lg font-extrabold tracking-tight text-white">IIM</div>
           <div className="text-[11px] font-medium text-rail-dim">Incident Intelligence</div>
@@ -92,7 +89,7 @@ export function Sidebar({
           <LogOut size={18} strokeWidth={2.1} /> Sign out
         </button>
         <div className="px-3 pt-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-rail-dim">
-          Local test build · v0.1
+          by Emesoft · v0.1
         </div>
       </div>
     </aside>

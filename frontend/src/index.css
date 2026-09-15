@@ -23,10 +23,10 @@
   --hair: rgba(15, 23, 42, 0.08);
   --grid: #d9deeb;
 
-  /* Brand accent (indigo) */
-  --accent: #6366f1;
-  --accent-strong: #4f46e5;
-  --accent-weak: #ecedfd;
+  /* Brand accent (Emesoft red) */
+  --accent: #e8242b;
+  --accent-strong: #b3151a;
+  --accent-weak: #fde8e9;
 
   /* Auxiliary hues for icon chips / badges */
   --info: #3b82f6;
@@ -47,6 +47,18 @@
   --sev-high: #f97316;
   --sev-medium: #f59e0b;
   --sev-low: #10b981;
+
+  /* Sign-in screen — a fixed dark treatment (like the rail, constant across themes), in the
+     company's own red rather than the in-app indigo accent. */
+  --login-bg: #0a0a0c;
+  --login-panel: #121215;
+  --login-card: #17171b;
+  --login-text: #f5f5f6;
+  --login-text-dim: rgba(245, 245, 246, 0.62);
+  --login-hair: rgba(255, 255, 255, 0.09);
+  --login-accent: #e8242b;
+  --login-accent-strong: #b3151a;
+  --login-accent-weak: rgba(232, 36, 43, 0.16);
 }
 
 :root[data-theme='dark'] {
@@ -59,9 +71,9 @@
   --muted: #64748b;
   --hair: rgba(148, 163, 184, 0.14);
   --grid: #263349;
-  --accent: #818cf8;
-  --accent-strong: #6366f1;
-  --accent-weak: rgba(129, 140, 248, 0.16);
+  --accent: #f0454b;
+  --accent-strong: #e8242b;
+  --accent-weak: rgba(240, 69, 75, 0.18);
   --info: #60a5fa;
   --purple: #a78bfa;
 }
@@ -77,9 +89,9 @@
     --muted: #64748b;
     --hair: rgba(148, 163, 184, 0.14);
     --grid: #263349;
-    --accent: #818cf8;
-    --accent-strong: #6366f1;
-    --accent-weak: rgba(129, 140, 248, 0.16);
+    --accent: #f0454b;
+    --accent-strong: #e8242b;
+    --accent-weak: rgba(240, 69, 75, 0.18);
     --info: #60a5fa;
     --purple: #a78bfa;
   }
@@ -153,11 +165,85 @@ body {
   animation: shimmer 1.5s infinite;
 }
 
+/*
+  Sign-in orchestration map (components/OrchestrationMap.tsx). All motion is slow and looping —
+  the diagram has to stay readable at a glance, so nothing here moves anything the eye has to
+  track. `transform-box: fill-box` is what makes these SVG elements rotate/scale about their own
+  centre rather than the SVG origin.
+*/
+@keyframes om-pulse {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.3;
+  }
+  100% {
+    transform: scale(1.5);
+    opacity: 0;
+  }
+}
+@keyframes om-breathe {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.035);
+  }
+}
+@keyframes om-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes om-spin-reverse {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+.om-pulse,
+.om-core,
+.om-ring-a,
+.om-ring-b {
+  transform-box: fill-box;
+  transform-origin: center;
+}
+.om-pulse {
+  animation: om-pulse 3s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+.om-core {
+  animation: om-breathe 5s ease-in-out infinite;
+}
+.om-ring-a {
+  animation: om-spin 70s linear infinite;
+}
+.om-ring-b {
+  animation: om-spin-reverse 95s linear infinite;
+}
+
+/* Sparky's beacon halo — only rendered in the `alert` mood, so this is never idle chrome. */
+.sparky-beacon {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: om-pulse 1.8s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-in {
     animation: none;
   }
   .skeleton::after {
+    animation: none;
+  }
+  .om-core,
+  .om-ring-a,
+  .om-ring-b {
+    animation: none;
+  }
+  .om-pulse {
+    animation: none;
+    opacity: 0;
+  }
+  .sparky-beacon {
     animation: none;
   }
 }

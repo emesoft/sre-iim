@@ -26,7 +26,7 @@ import uuid
 from dataclasses import dataclass
 
 from app.domain.documents.entities import RetrievedChunk
-from app.domain.incidents.entities import AnalysisDraft, ChatTurnResult
+from app.domain.incidents.entities import AnalysisDraft, ChatMessage, ChatTurnResult
 from app.domain.incidents.prompts import (
     RETRIEVED_KNOWLEDGE_RULES,
     SYSTEM_PROMPT,
@@ -41,14 +41,23 @@ from app.infrastructure.security.encryptor import Encryptor
 from app.infrastructure.security.keys import CLAUDE_CLI_TOKEN_KEY
 
 
-# What the fetch_logs MCP subprocess actually needs (config.py's DEMO_LOGS/AWS_REGION, plus the
-# AWS SDK's own env vars for the default credential chain and locating ~/.aws/config) — deliberately
-# NOT the full parent environment (see _run_turn). PROJECT_<SERVICE>_* vars are added per-call since
-# their names depend on the incident's service.
+# What the MCP tool subprocess actually needs — deliberately NOT the full parent environment (see
+# _run_turn). PROJECT_<SERVICE>_* vars are added per-call since their names depend on the service.
+#
+# DATABASE_URL and SECRET_ENCRYPTION_KEY are here because all four tools read the project's
+# `integrations` row and decrypt its credentials. They were withheld as a precaution, and the
+# precaution was silent: both have plausible-looking defaults (`...@localhost:5432/iim` and `""`),
+# so the subprocess did not report missing configuration — it reported "Connect call failed", and
+# every AWS tool failed 100% of the time while looking like an AWS problem. Withholding them is
+# also not much of a boundary: this is our own module, in our own image, and the allowlist already
+# forwards AWS_SECRET_ACCESS_KEY. The values reach it through a 0600 temp file that is unlinked
+# after the turn, never through argv.
 _MCP_TOOL_ENV_ALLOWLIST = {
     "PATH",
     "HOME",
     "DEMO_LOGS",
+    "DATABASE_URL",
+    "SECRET_ENCRYPTION_KEY",
     "AWS_REGION",
     "AWS_DEFAULT_REGION",
     "AWS_PROFILE",
@@ -75,6 +84,7 @@ async def _get_token(settings: Settings) -> str:
 class _CliResult:
     text: str
     input_tokens: int | None
+    cached_input_tokens: int | None
     output_tokens: int | None
 
 
@@ -104,20 +114,21 @@ async def _run_cli(cmd: list[str], token: str) -> _CliResult:
         raise RuntimeError(f"claude CLI failed: {detail}")
 
     usage = data.get("usage") or {}
-    # "input_tokens" alone massively undercounts: --safe-mode still caches most of the prompt
-    # (system prompt / project context) across calls in the same OAuth session, and that shows up
-    # as cache_read_input_tokens / cache_creation_input_tokens instead — both still real spend
-    # against the account, just billed at a different (cheaper) rate than fresh input tokens.
-    input_tokens = (
-        usage.get("input_tokens", 0)
-        + usage.get("cache_read_input_tokens", 0)
-        + usage.get("cache_creation_input_tokens", 0)
-        if "input_tokens" in usage
+    # Reported apart, not summed. `input_tokens` alone undercounts badly — --safe-mode caches most
+    # of the prompt (system prompt, incident context, transcript) across calls in the same OAuth
+    # session — but adding the cached figures into it overcounts *cost* by roughly the same margin,
+    # since a cache read is a fraction of the price of fresh input and the same cached prefix is
+    # re-read on every single turn. Two numbers are the only honest answer.
+    has_usage = "input_tokens" in usage
+    cached = (
+        usage.get("cache_read_input_tokens", 0) + usage.get("cache_creation_input_tokens", 0)
+        if has_usage
         else None
     )
     return _CliResult(
         text=data["result"],
-        input_tokens=input_tokens,
+        input_tokens=usage.get("input_tokens") if has_usage else None,
+        cached_input_tokens=cached,
         output_tokens=usage.get("output_tokens"),
     )
 
@@ -169,6 +180,7 @@ class ClaudeCliAnalyzer:
         return AnalysisDraft(
             model_id=f"claude-cli:{self._settings.claude_cli_model}",
             input_tokens=result.input_tokens,
+            cached_input_tokens=result.cached_input_tokens,
             output_tokens=result.output_tokens,
             **parsed,
         )
@@ -190,11 +202,37 @@ class ClaudeCliChatModel:
         return result.text
 
 
+# Naming the tools matters more than it looks. Told only that it "has tools", the CLI answered a
+# question about ECS task counts by explaining it had no AWS CLI available and listing the
+# `aws ecs describe-services` commands the reader should run and paste back — a checklist, while the
+# app was already holding credentials that could answer it. The rule below is deliberately blunt.
 _CHAT_SYSTEM_PROMPT = """You are a senior SRE helping investigate one specific incident in a chat conversation. \
-You have the incident's full raw context below. Answer the user's questions grounded in that context. \
-If you need log lines you don't already have to answer well, call the fetch_logs tool rather than guessing — \
-it fetches real log lines for this incident's own service. Never invent log content, metrics, or events \
-that aren't in the context or in a tool result. Be concise and direct, like an engineer working the incident live."""
+You have the incident's full raw context below. Answer the user's questions grounded in that context.
+
+You can investigate this incident's own AWS account directly. Use the tools rather than telling the user \
+to go and run commands themselves — if a question can be answered by a tool, answer it:
+- describe_alarm(alarm_name): an alarm's threshold, missing-data handling, dimensions, and CloudWatch's own \
+  state reason. Start here; the dimensions tell you which resource the alarm watches (never infer that from \
+  the alarm's name).
+- metric_datapoints(namespace, metric_name, dimensions, minutes): the real numbers behind a metric. \
+  Zero datapoints is an answer, and a different one from a low value.
+- ecs_service_state(cluster, service): desired/running/pending task counts, why recent tasks stopped, and \
+  recent service events.
+- fetch_logs(log_group, start, end, filter_pattern): real log lines for this incident's service.
+
+Never ask the user to run an AWS command you could run yourself, and never ask for AWS credentials — you \
+already act as this project's own integration. If a tool reports no integration is configured, say that \
+plainly. Never invent log content, metrics, or events that aren't in the context or in a tool result. \
+Be concise and direct, like an engineer working the incident live."""
+
+
+#: Read-only investigation tools, as registered in mcp_log_tool.py.
+_ALLOWED_TOOLS = (
+    "mcp__iim-tools__fetch_logs",
+    "mcp__iim-tools__describe_alarm",
+    "mcp__iim-tools__metric_datapoints",
+    "mcp__iim-tools__ecs_service_state",
+)
 
 
 def _chat_system_prompt(context: dict) -> str:
@@ -203,7 +241,7 @@ def _chat_system_prompt(context: dict) -> str:
 
 class ClaudeCliChat:
     """Runs one incident-chat turn through the Claude Code CLI's own agentic tool-use loop (an
-    MCP server exposing `fetch_logs`, see `mcp_log_tool.py`) — distinct from `ClaudeCliChatModel`,
+    MCP server exposing `fetch_logs` plus the AWS lookups, see `mcp_log_tool.py`) — distinct from `ClaudeCliChatModel`,
     which returns plain text with no tools enabled. Only this class needs tools, because incident
     chat is the first feature where Claude must be able to act autonomously mid-call (design spec
     .claude/specs/2026-08-23-incident-chat-design.md)."""
@@ -219,9 +257,14 @@ class ClaudeCliChat:
         message: str,
         claude_session_id: uuid.UUID,
         is_new_session: bool,
+        history: list[ChatMessage] | None = None,  # noqa: ARG002 - the CLI keeps its own session
     ) -> ChatTurnResult:
         token = await _get_token(self._settings)
-        system_prompt = _chat_system_prompt(context)
+        # The full incident context only needs to be told to Claude once: --resume replays the
+        # prior turns (including that first system prompt) from Claude Code's own session storage,
+        # so re-appending it on every turn would just duplicate it into the prompt each time,
+        # growing token usage turn over turn for no benefit.
+        new_session_system_prompt = _chat_system_prompt(context)
         try:
             if is_new_session:
                 # Always mint a fresh id for a "new session" attempt, ignoring the caller's id: if
@@ -234,7 +277,7 @@ class ClaudeCliChat:
             result = await self._run_turn(
                 service=service,
                 message=message,
-                system_prompt=system_prompt,
+                system_prompt=new_session_system_prompt if is_new_session else None,
                 token=token,
                 session_id=session_id,
                 resume=not is_new_session,
@@ -242,6 +285,7 @@ class ClaudeCliChat:
             return ChatTurnResult(
                 text=result.text,
                 input_tokens=result.input_tokens,
+                cached_input_tokens=result.cached_input_tokens,
                 output_tokens=result.output_tokens,
                 claude_session_id=session_id,
             )
@@ -249,12 +293,13 @@ class ClaudeCliChat:
             if is_new_session:
                 raise  # a fresh session failing outright is a real error, not a stale-resume problem
             # --resume pointed at a session the CLI no longer has (e.g. the backend container was
-            # recreated between turns) — start a fresh session rather than hard-failing the chat.
+            # recreated between turns) — start a fresh session rather than hard-failing the chat, so
+            # it needs the full context again just like any other new session.
             new_session_id = uuid.uuid4()
             result = await self._run_turn(
                 service=service,
                 message=message,
-                system_prompt=system_prompt,
+                system_prompt=new_session_system_prompt,
                 token=token,
                 session_id=new_session_id,
                 resume=False,
@@ -262,6 +307,7 @@ class ClaudeCliChat:
             return ChatTurnResult(
                 text=result.text,
                 input_tokens=result.input_tokens,
+                cached_input_tokens=result.cached_input_tokens,
                 output_tokens=result.output_tokens,
                 claude_session_id=new_session_id,
             )
@@ -271,13 +317,13 @@ class ClaudeCliChat:
         *,
         service: str,
         message: str,
-        system_prompt: str,
+        system_prompt: str | None,
         token: str,
         session_id: uuid.UUID,
         resume: bool,
     ) -> _CliResult:
         # The MCP server subprocess is spawned BY `claude`, not by us. It only fetches logs
-        # (mcp_log_tool.py / build_log_fetcher / CloudWatchLogFetcher), so it gets an explicit
+        # (mcp_log_tool.py / resolve_log_fetcher / CloudWatchLogFetcher), so it gets an explicit
         # allowlist of what that needs — not the full parent environment, which carries
         # DATABASE_URL, SECRET_ENCRYPTION_KEY, JWT_SECRET_KEY, AWS creds, etc. that this
         # subprocess has no business seeing.
@@ -313,11 +359,15 @@ class ClaudeCliChat:
                 "--output-format", "json",
                 "--mcp-config", mcp_config_path,
                 "--strict-mcp-config",
-                "--allowedTools", "mcp__iim-tools__fetch_logs",
+                # Every tool must be listed here as well as registered in the MCP server: one
+                # missing name is not an error, it just silently isn't callable, and the model then
+                # explains it has no way to check and hands the user a list of commands to run.
+                "--allowedTools", ",".join(_ALLOWED_TOOLS),
                 "--safe-mode", "--model", self._settings.claude_cli_model,
-                "--append-system-prompt", system_prompt,
-                "--resume" if resume else "--session-id", str(session_id),
             ]
+            if system_prompt is not None:
+                cmd.extend(["--append-system-prompt", system_prompt])
+            cmd.extend(["--resume" if resume else "--session-id", str(session_id)])
             return await _run_cli(cmd, token)
         finally:
             os.unlink(mcp_config_path)

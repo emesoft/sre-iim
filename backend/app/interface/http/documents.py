@@ -16,8 +16,10 @@ from app.application.documents.seed import SeedDefaultDocuments
 from app.domain.documents.entities import SOURCE_TYPES
 from app.domain.documents.ports import DocumentRepository
 from app.domain.shared import UnitOfWork
+from app.domain.users.scope import ProjectScope
 from app.interface.http.deps import (
     get_document_repository,
+    get_project_scope,
     get_ingest_document,
     get_seed_default_documents,
     get_unit_of_work,
@@ -88,9 +90,10 @@ async def seed_documents(
 @router.get("", response_model=list[DocumentSummary])
 async def list_documents(
     repo: DocumentRepository = Depends(get_document_repository),
+    scope: ProjectScope = Depends(get_project_scope),
 ) -> list[DocumentSummary]:
     """List indexed documents with their chunk counts (newest first)."""
-    rows = await repo.list()
+    rows = await repo.list(projects=scope.names)
     return [mappers.document_summary(document, count) for document, count in rows]
 
 

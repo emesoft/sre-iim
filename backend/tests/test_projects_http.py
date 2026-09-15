@@ -17,7 +17,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.domain.users.entities import User
-from app.infrastructure.db.orm import AdoConnectionRow, Base, CloudConnectionRow, ProjectRow
+from app.infrastructure.db.orm import Base, IntegrationRow, ProjectRow
 from app.interface.http.deps import get_current_user, get_session
 from app.main import app
 
@@ -54,8 +54,7 @@ async def client():
         # cloud_connections/ado_connections across test files, so delete both referencing
         # tables before `projects` itself to avoid a leftover row from another file colliding
         # with (or blocking the delete of) the names this file uses.
-        await s.execute(delete(CloudConnectionRow))
-        await s.execute(delete(AdoConnectionRow))
+        await s.execute(delete(IntegrationRow))
         await s.execute(delete(ProjectRow))
         await s.commit()
 

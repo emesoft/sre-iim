@@ -83,6 +83,37 @@ class Settings(BaseSettings):
     secret_encryption_key: str = ""  # Fernet key (44-char urlsafe base64); required to store access keys
     alarm_poll_interval_minutes: int = 60
 
+    # --- Automatic analysis (AutoAnalyzeIncidents) ---
+    # Which provider-reported alarm priorities get analyzed without anyone asking. Matched against
+    # `context["priority"]`, so an alarm whose provider reports no priority (every CloudWatch
+    # alarm that doesn't spell one out in its name) is never picked up — add "unknown" here to
+    # opt into those too, at the cost of an LLM call per alarm in the account.
+    auto_analyze_priorities: str = "critical,high"
+    # Ceiling per sweep. This is a spend limit, not a throughput target: a flapping alarm should
+    # cost a few calls per cycle at worst. Set to 0 to turn automatic analysis off entirely.
+    #: How long an incident may claim to be "analyzing" before a sweep decides nothing is working
+    #: on it. Comfortably longer than a real analysis (graph mode with retries is well under this)
+    #: so a slow run is never mistaken for an abandoned one.
+    analysis_stale_minutes: int = 15
+    auto_analyze_max_per_run: int = 3
+
+    # --- Microsoft Entra ID (Azure AD) single sign-on ---
+    # Both come from the app registration's Overview blade and are public identifiers, not
+    # secrets: the browser sends them to Microsoft on every sign-in. A single-page app uses
+    # Authorization Code + PKCE, so there is deliberately no client secret here.
+    # Unset (either one blank) = SSO disabled, POST /api/auth/entra returns 501.
+    entra_tenant_id: str = ""
+    entra_client_id: str = ""
+    # Role granted the first time someone signs in through Entra. Anyone in the directory can
+    # authenticate, so the default is the read-only role; an admin promotes from the Users page.
+
+    # --- External alert webhooks ---
+    # Shared secret checked against `?secret=` on POST /api/webhooks/newrelic/{project} — this
+    # route can't require a login (New Relic isn't a logged-in user), so this is its only guard.
+    # Empty means no check at all (local test build default) — set it before exposing this port
+    # beyond localhost.
+    newrelic_webhook_secret: str = ""
+
     # --- Per-user auth (JWT) ---
     # Replaces the old single-shared-password admin gate: every request now carries a per-user
     # JWT (see infrastructure/security/jwt.py) issued by POST /api/auth/login. Unset

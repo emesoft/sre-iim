@@ -58,6 +58,61 @@ class IncidentSummary(BaseModel):
     # From context.env (set by PollAlarmsJob from the connection's env) — None for incidents
     # created before this field existed, or created without a cloud connection.
     env: str | None = None
+    # How many times the same CloudWatch alarm has fired into a new incident, counting this one —
+    # 1 for a first-time/non-alarm incident. previous_incident_id links to the incident this alarm
+    # opened last time, so the UI can offer a "view previous occurrence" link.
+    occurrence_count: int = 1
+    previous_incident_id: uuid.UUID | None = None
+
+
+class ProjectRollupOut(BaseModel):
+    """One row of the dashboard's project board."""
+
+    project: str
+    open: int
+    urgent: int
+    untriaged: int
+    top_incident_id: uuid.UUID | None = None
+    top_headline: str | None = None
+
+
+class NoisyAlarmOut(BaseModel):
+    """One repeatedly-firing problem in the rollup window."""
+
+    service: str
+    fingerprint: str
+    count: int
+    label: str
+
+
+class IncidentRollupOut(BaseModel):
+    """`GET /api/incidents/rollup` — every number the dashboard shows, aggregated in SQL.
+
+    The dashboard previously derived its counts from the first page of `GET /api/incidents`, so
+    they went wrong past that page's 50-row cap and could never be broken down per project."""
+
+    active: int
+    urgent: int
+    untriaged: int
+    new_last_24h: int
+    #: Triage lane -> how many incidents are in it. The tab counts on the Incidents page read this
+    #: rather than counting a page of rows, which would be wrong past the page cap.
+    lanes: dict[str, int] = Field(default_factory=dict)
+    #: Options for the project filter — unaffected by the filter itself.
+    all_projects: list[str] = Field(default_factory=list)
+    projects: list[ProjectRollupOut] = Field(default_factory=list)
+    noisy: list[NoisyAlarmOut] = Field(default_factory=list)
+
+
+class BulkResultOut(BaseModel):
+    """`POST /api/incidents/bulk` — what actually happened, not just "ok".
+
+    `skipped` is ids the caller couldn't see or that no longer exist; reporting it as a number
+    keeps one stale selection from silently looking like a full success."""
+
+    action: str
+    done: int
+    skipped: int
 
 
 class IncidentDetail(BaseModel):
@@ -81,6 +136,9 @@ class IncidentDetail(BaseModel):
     # The reason the last analysis attempt failed (status == "failed"); persisted so it survives
     # a page reload, not just visible to whoever was watching the SSE stream live.
     error_message: str | None = None
+    # See IncidentSummary.
+    occurrence_count: int = 1
+    previous_incident_id: uuid.UUID | None = None
 
 
 class ChatMessageOut(BaseModel):
@@ -89,6 +147,10 @@ class ChatMessageOut(BaseModel):
     id: uuid.UUID
     role: str  # user | assistant
     content: str
+    #: Fresh input only. The cached prefix — system prompt, incident context, the transcript so
+    #: far — is reported separately: it is re-read on every turn and costs a fraction of the price,
+    #: so one combined figure looks alarming and means very little.
     input_tokens: int | None = None
+    cached_input_tokens: int | None = None
     output_tokens: int | None = None
     created_at: datetime

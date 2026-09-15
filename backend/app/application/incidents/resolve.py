@@ -18,10 +18,6 @@ from app.domain.incidents.ports import IncidentRepository
 from app.domain.shared import UnitOfWork
 
 
-class NoAnalysisToResolveError(ValueError):
-    """The incident has no analysis yet, so there's nothing to save as a known-issue case."""
-
-
 def _case_content(incident: Incident, analysis: Analysis, resolution_notes: str) -> str:
     return (
         f"# {incident.service}: {analysis.summary}\n\n"
@@ -41,31 +37,33 @@ class ResolveIncident:
     overlap: int = DEFAULT_OVERLAP
 
     async def resolve(self, incident_id: uuid.UUID, *, resolution_notes: str) -> Incident:
+        """Marks the incident resolved. When it has an analysis, that analysis is also saved as a
+        known-issue case (so a later similar incident surfaces it via RAG). An incident with no
+        analysis — never sent to the AI, or cleared by an auto-resolve before anyone got to it —
+        has nothing to write up, so it's simply closed out instead of blocking the user on running
+        an analysis first."""
         incident = await self.incidents.get(incident_id)
         if incident is None:
             raise ValueError(f"incident {incident_id} not found")
         analysis = await self.incidents.latest_analysis(incident_id)
-        if analysis is None:
-            raise NoAnalysisToResolveError(
-                f"incident {incident_id} has no analysis to save as a known-issue case"
-            )
 
-        content = _case_content(incident, analysis, resolution_notes)
-        texts = chunk_markdown(content, self.chunk_size, self.overlap)
-        vectors = await self.embedder.embed_documents(texts)
-        chunks = [
-            EmbeddedChunk(index=i, content=text, embedding=vector)
-            for i, (text, vector) in enumerate(zip(texts, vectors))
-        ]
-        await self.documents.add(
-            Document(
-                title=f"{incident.service}: {analysis.summary}",
-                source_type="incident",
-                service=incident.service,
-                incident_id=incident.id,
-            ),
-            chunks,
-        )
+        if analysis is not None:
+            content = _case_content(incident, analysis, resolution_notes)
+            texts = chunk_markdown(content, self.chunk_size, self.overlap)
+            vectors = await self.embedder.embed_documents(texts)
+            chunks = [
+                EmbeddedChunk(index=i, content=text, embedding=vector)
+                for i, (text, vector) in enumerate(zip(texts, vectors))
+            ]
+            await self.documents.add(
+                Document(
+                    title=f"{incident.service}: {analysis.summary}",
+                    source_type="incident",
+                    service=incident.service,
+                    incident_id=incident.id,
+                ),
+                chunks,
+            )
 
         await self.incidents.set_status(incident_id, "resolved")
         incident.status = "resolved"

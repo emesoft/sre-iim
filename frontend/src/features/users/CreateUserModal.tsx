@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { api, errText } from '../../lib/api'
-import type { Role, UserOut } from '../../lib/types'
+import type { Group, UserOut } from '../../lib/types'
 import { Modal } from '../../components/ui/Modal'
 import { Button } from '../../components/ui/Button'
 import { Field } from '../../components/ui/Field'
@@ -8,21 +8,21 @@ import { Field } from '../../components/ui/Field'
 const inputCls =
   'w-full rounded-lg border border-hair bg-plane p-1.5 text-sm text-ink outline-none focus:border-accent'
 
-const ROLES: Role[] = ['admin', 'sre', 'consultant']
-
 export function CreateUserModal({
   open,
+  groups,
   onClose,
   onCreated,
 }: {
   open: boolean
+  groups: Group[]
   onClose: () => void
   onCreated: (user: UserOut) => void
 }) {
   const [username, setUsername] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [role, setRole] = useState<Role>('consultant')
+  const [groupId, setGroupId] = useState('')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string | null>(null)
 
@@ -30,7 +30,7 @@ export function CreateUserModal({
     setUsername('')
     setEmail('')
     setPassword('')
-    setRole('consultant')
+    setGroupId('')
     setErr(null)
   }
 
@@ -48,7 +48,7 @@ export function CreateUserModal({
         username: username.trim(),
         email: email.trim() || null,
         password,
-        role,
+        group_id: groupId || null,
       })
       onCreated(user)
       close()
@@ -95,10 +95,17 @@ export function CreateUserModal({
           />
         </Field>
         <Field label="Group">
-          <select value={role} onChange={(e) => setRole(e.target.value as Role)} className={inputCls}>
-            {ROLES.map((r) => (
-              <option key={r} value={r}>
-                {r}
+          <select
+            value={groupId}
+            onChange={(e) => setGroupId(e.target.value)}
+            className={inputCls}
+          >
+            {/* Guest is the default: an account whose password hasn't been handed over yet should
+                not already be able to read anything. */}
+            <option value="">Guest — no access yet</option>
+            {groups.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.name} ({g.role})
               </option>
             ))}
           </select>

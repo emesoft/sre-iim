@@ -10,6 +10,7 @@ import {
   MousePointerClick,
   Sparkles,
   Ticket,
+  Trash2,
 } from 'lucide-react'
 import { api, errText, isUnreachable } from '../../lib/api'
 import type { IncidentCreated, IncidentDetail as Detail } from '../../lib/types'
@@ -28,14 +29,49 @@ import { incidentRef } from '../../lib/format'
 import { useIncidentStream } from '../../lib/useIncidentStream'
 import { ChatPanel } from './ChatPanel'
 
+// `source` names an ingest path, not just CloudWatch — a New Relic-polled or webhook-ingested
+// incident still lands here with status="new" (see poll_alarms.py / webhooks.py), so the copy
+// must not say "CloudWatch" for those.
+function unanalyzedHeadline(source: string): string {
+  if (source === 'cloudwatch_alarm') return 'Alarm fired — not analyzed yet'
+  if (source === 'newrelic_issue') return 'New Relic alert — not analyzed yet'
+  if (source === 'webhook') return 'Alert received — not analyzed yet'
+  return 'Not analyzed yet'
+}
+
+const SOURCE_LABELS: Record<string, string> = {
+  cloudwatch_alarm: 'CloudWatch',
+  newrelic_issue: 'New Relic',
+  webhook: 'Webhook',
+  manual: 'Manual',
+}
+
+function sourceLabel(source: string): string {
+  return SOURCE_LABELS[source] ?? source
+}
+
+function unanalyzedSourceLabel(source: string): string {
+  if (source === 'cloudwatch_alarm') return 'a CloudWatch alarm'
+  if (source === 'newrelic_issue') return 'a New Relic alert'
+  if (source === 'webhook') return 'an external alert'
+  return 'an external event'
+}
+
 export function IncidentDetail({
   incidentId,
   onSelectIncident,
+  onIncidentChanged,
   canMutate,
+  onIncidentDeleted,
 }: {
   incidentId: string | null
   onSelectIncident: (id: string) => void
+  /** Fired after anything that changes how this incident appears elsewhere — resolving, ticketing,
+   * starting an analysis, or an analysis landing. The list beside this pane and the dashboard
+   * counters come from a different fetch, so without this they keep showing the stale status. */
+  onIncidentChanged: () => void
   canMutate: boolean
+  onIncidentDeleted: () => void
 }) {
   const [d, setD] = useState<Detail | null>(null)
   const [err, setErr] = useState<string | null>(null)
@@ -78,8 +114,9 @@ export function IncidentDetail({
 
   useEffect(() => {
     if (!incidentId || !(stream.result || stream.error)) return
+    onIncidentChanged()
     return fetchDetail(incidentId)
-  }, [stream.result, stream.error, incidentId, fetchDetail])
+  }, [stream.result, stream.error, incidentId, fetchDetail, onIncidentChanged])
 
   if (!incidentId) {
     return (
@@ -118,8 +155,19 @@ export function IncidentDetail({
             {a && <SeverityBadge severity={a.severity} />}
             <StatusBadge status={d.status} />
             {a && <Badge tone={a._cache === 'HIT' ? 'success' : 'neutral'}>cache {a._cache}</Badge>}
-            <Badge>{d.source}</Badge>
+            <Badge>{sourceLabel(d.source)}</Badge>
+            {d.occurrence_count > 1 && (
+              <Badge tone="warning">↻ Recurred {d.occurrence_count}×</Badge>
+            )}
           </div>
+          {d.previous_incident_id && (
+            <button
+              onClick={() => onSelectIncident(d.previous_incident_id!)}
+              className="mt-1.5 text-xs font-semibold text-accent hover:underline"
+            >
+              View previous occurrence ({incidentRef(d.previous_incident_id)}) →
+            </button>
+          )}
           <div className="mt-2 flex flex-wrap items-center gap-2 font-mono text-[11px] text-muted">
             fingerprint <span className="text-ink-2">{d.fingerprint}</span>
             {d.ticket_url && (
@@ -140,15 +188,31 @@ export function IncidentDetail({
               <AnalyzeButton
                 incidentId={d.id}
                 retry={d.status === 'failed'}
-                onAnalyzeStarted={() => setD({ ...d, status: 'analyzing' })}
+                onAnalyzeStarted={() => {
+                  setD({ ...d, status: 'analyzing' })
+                  onIncidentChanged()
+                }}
               />
             )}
             {a && !a.known_issue && !d.ticket_url && (
-              <TicketButton incident={d} onTicketed={(next) => setD(next)} />
+              <TicketButton
+                incident={d}
+                onTicketed={(next) => {
+                  setD(next)
+                  onIncidentChanged()
+                }}
+              />
             )}
-            {a && d.status !== 'resolved' && (
-              <ResolveButton incident={d} onResolved={(next) => setD(next)} />
+            {d.status !== 'resolved' && (
+              <ResolveButton
+                incident={d}
+                onResolved={(next) => {
+                  setD(next)
+                  onIncidentChanged()
+                }}
+              />
             )}
+            <DeleteButton incident={d} onDeleted={onIncidentDeleted} />
           </div>
         )}
       </div>
@@ -182,15 +246,17 @@ export function IncidentDetail({
         <Card className="p-5">
           <div className="flex items-center gap-2">
             <AlertTriangle size={15} className="text-sev-medium" />
-            <h3 className="font-display text-sm font-bold text-ink">Alarm fired — not analyzed yet</h3>
+            <h3 className="font-display text-sm font-bold text-ink">
+              {unanalyzedHeadline(d.source)}
+            </h3>
           </div>
           <p className="mt-3 whitespace-pre-wrap text-sm text-ink-2">
-            {typeof d.context.alert === 'string' ? d.context.alert : 'No alarm details in context.'}
+            {typeof d.context.alert === 'string' ? d.context.alert : 'No alert details in context.'}
           </p>
           <p className="mt-3 text-xs text-muted">
-            This incident was created automatically from a CloudWatch alarm and hasn't been sent to
-            the AI yet — review the raw alert above, then click "Analyze with AI" if you want a
-            root-cause analysis.
+            This incident was created automatically from {unanalyzedSourceLabel(d.source)} and
+            hasn't been sent to the AI yet — review the raw alert above, then click "Analyze with
+            AI" if you want a root-cause analysis.
           </p>
         </Card>
       ) : analyzing && !stream.result && !stream.error ? (
@@ -443,14 +509,19 @@ function ResolveButton({
       </Button>
       <Modal open={open} title="Mark resolved" onClose={() => setOpen(false)}>
         <p className="text-sm text-ink-2">
-          Saves this case (summary, root cause, fix) so a similar incident later is flagged as a
-          known issue.
+          {incident.analysis
+            ? 'Saves this case (summary, root cause, fix) so a similar incident later is flagged as a known issue.'
+            : "This incident has no AI analysis yet, so there's nothing to save as a known issue — it'll just be closed out."}
         </p>
         <form onSubmit={submit} className="space-y-3">
           <Textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="How was this fixed? (e.g. rolled back to 1.7.9 and bumped container heap size)"
+            placeholder={
+              incident.analysis
+                ? 'How was this fixed? (e.g. rolled back to 1.7.9 and bumped container heap size)'
+                : 'Why is this being closed? (e.g. false alarm, duplicate, not actionable)'
+            }
             rows={4}
             autoFocus
           />
@@ -466,6 +537,37 @@ function ResolveButton({
         </form>
       </Modal>
     </>
+  )
+}
+
+function DeleteButton({ incident, onDeleted }: { incident: Detail; onDeleted: () => void }) {
+  const [loading, setLoading] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const submit = () => {
+    if (
+      !confirm(
+        `Delete ${incidentRef(incident.id)} — ${incident.headline || incident.service}? This cannot be undone.`
+      )
+    ) {
+      return
+    }
+    setLoading(true)
+    setErr(null)
+    api
+      .del(`/api/incidents/${incident.id}`)
+      .then(onDeleted)
+      .catch((e) => setErr(errText(e)))
+      .finally(() => setLoading(false))
+  }
+
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button variant="ghost" disabled={loading} onClick={submit}>
+        <Trash2 size={15} /> {loading ? 'Deleting…' : 'Delete'}
+      </Button>
+      {err && <p className="max-w-[220px] text-right text-xs text-sev-critical">{err}</p>}
+    </div>
   )
 }
 

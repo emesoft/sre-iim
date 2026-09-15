@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from app.application.incidents.ingest import IngestIncident
+from app.domain.incidents.ports import FixedAnalyzer
 from app.domain.incidents.entities import Analysis, AnalysisDraft, Incident
 
 pytestmark = pytest.mark.asyncio
@@ -119,7 +120,8 @@ def _make(ttl=1800):
     clock = MutableClock(datetime(2026, 7, 19, 10, 0, tzinfo=timezone.utc))
     uow = FakeUnitOfWork()
     usecase = IngestIncident(
-        incidents=repo, cache=cache, analyzer=analyzer, clock=clock, uow=uow, cache_ttl_seconds=ttl
+        incidents=repo, cache=cache, analyzers=FixedAnalyzer(analyzer), clock=clock, uow=uow,
+        cache_ttl_seconds=ttl, enricher=None,
     )
     return usecase, repo, cache, analyzer, clock, uow
 

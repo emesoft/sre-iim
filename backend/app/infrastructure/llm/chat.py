@@ -17,21 +17,39 @@ from app.infrastructure.config import Settings
 
 
 class BedrockChatModel:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        model: str | None = None,
+        fast_model: str | None = None,
+        region: str | None = None,
+        boto_session=None,
+    ) -> None:
         self._settings = settings
+        self._model = model or settings.model_id
+        self._fast_model = fast_model or settings.fast_model_id
+        self._region = region or settings.aws_region
+        self._boto_session = boto_session
         self._clients: dict[str, ChatBedrockConverse] = {}
 
     def _model_id(self, tier: Tier) -> str:
-        return self._settings.fast_model_id if tier == "fast" else self._settings.model_id
+        return self._fast_model if tier == "fast" else self._model
 
     def _client(self, tier: Tier) -> ChatBedrockConverse:
         model_id = self._model_id(tier)
         if model_id not in self._clients:
+            kwargs = {}
+            if self._boto_session is not None:
+                kwargs["client"] = self._boto_session.client(
+                    "bedrock-runtime", region_name=self._region
+                )
             self._clients[model_id] = ChatBedrockConverse(
                 model=model_id,
-                region_name=self._settings.aws_region,
+                region_name=self._region,
                 max_tokens=700,
                 temperature=0.2,
+                **kwargs,
             )
         return self._clients[model_id]
 

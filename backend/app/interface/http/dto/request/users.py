@@ -4,22 +4,26 @@ interface/http/users.py.
 
 from __future__ import annotations
 
+import uuid
+
 from pydantic import BaseModel, Field
 
 
 class CreateUserRequest(BaseModel):
-    """`POST /api/users` body. `role` is checked against `domain.users.entities.ROLES` in the
-    route handler (422 on an unknown role) — same convention as documents.py checking
-    `source_type` against `SOURCE_TYPES`. `username` is the login identity (required, unique);
-    `email` is optional, purely informational."""
+    """`POST /api/users` body.
+
+    `group_id` decides both what the account may do and which projects it sees — they're the same
+    decision. Omitting it creates a Guest: no permissions, no projects, which is the safe state for
+    an account whose password hasn't been handed over yet.
+    """
 
     username: str = Field(min_length=1)
     password: str = Field(min_length=8)
-    role: str = "consultant"
+    group_id: uuid.UUID | None = None
     email: str | None = None
 
 
-class UpdateUserRequest(BaseModel):
-    """`PATCH /api/users/{id}` body — role change only."""
+class ResetPasswordRequest(BaseModel):
+    """`POST /api/users/{id}/password` body — admin sets a new password for the account."""
 
-    role: str
+    new_password: str = Field(min_length=8)

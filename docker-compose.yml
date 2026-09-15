@@ -49,8 +49,20 @@ services:
       DEMO_LOGS: ${DEMO_LOGS:-false}
       # Azure DevOps ticketing is now per-project, configured via the Settings page
       # (ado_connections table) rather than env vars — see infrastructure/tickets/ado_client.py.
-      # --- CloudWatch alarm polling: encryption key for storing access keys ---
+      # --- CloudWatch alarm polling: encryption key for storing access keys + poll cadence ---
       SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      ALARM_POLL_INTERVAL_MINUTES: ${ALARM_POLL_INTERVAL_MINUTES:-60}
+      # Automatic triage of urgent alarms. Priorities are the provider's own; the cap is a
+      # spend limit per sweep (0 disables auto-analysis globally, and each project has its
+      # own switch on the Settings page).
+      AUTO_ANALYZE_PRIORITIES: ${AUTO_ANALYZE_PRIORITIES:-critical,high}
+      AUTO_ANALYZE_MAX_PER_RUN: ${AUTO_ANALYZE_MAX_PER_RUN:-3}
+      # --- Microsoft Entra ID SSO (from the app registration's Overview blade; both are
+      # public identifiers, not secrets — leave blank to disable the Microsoft sign-in button) ---
+      ENTRA_TENANT_ID: ${ENTRA_TENANT_ID:-}
+      ENTRA_CLIENT_ID: ${ENTRA_CLIENT_ID:-}
+      # --- External alert webhooks (POST /api/webhooks/newrelic/{project}) ---
+      NEWRELIC_WEBHOOK_SECRET: ${NEWRELIC_WEBHOOK_SECRET:-}
       # --- Per-user auth (JWT) + initial admin bootstrap ---
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-}
       JWT_ACCESS_TOKEN_TTL_SECONDS: ${JWT_ACCESS_TOKEN_TTL_SECONDS:-28800}

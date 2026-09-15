@@ -11,6 +11,7 @@ from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from app.application.incidents.ingest import IngestIncident
+from app.domain.incidents.ports import FixedAnalyzer
 from app.domain.incidents.entities import AnalysisDraft
 from app.infrastructure.clock import SystemClock
 from app.infrastructure.db.orm import AnalysisCacheRow, AnalysisRow, Base, IncidentRow
@@ -54,7 +55,8 @@ def _usecase(session, analyzer):
     return IngestIncident(
         incidents=SqlAlchemyIncidentRepository(session),
         cache=SqlAlchemyAnalysisCacheRepository(session),
-        analyzer=analyzer,
+        analyzers=FixedAnalyzer(analyzer),
+        enricher=None,
         clock=SystemClock(),
         uow=SqlAlchemyUnitOfWork(session),
         cache_ttl_seconds=1800,
