@@ -11,6 +11,20 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.domain.incidents.log_lines import first_message, log_lines
+
+
+def _mapping(ctx: dict, key: str) -> dict:
+    """One context section, guaranteed to be a dict.
+
+    Every section here is read with `.get()`, and `ctx` arrives straight off an HTTP body — so a
+    caller sending `"recent_deploy": "v1.4.2"` instead of `{"version": "v1.4.2"}` used to raise
+    `AttributeError` from inside the background analysis task, where it surfaces only as an
+    incident stuck in `failed`. A section we can't read is treated as a section that isn't there.
+    """
+    value = ctx.get(key)
+    return value if isinstance(value, dict) else {}
+
 if TYPE_CHECKING:
     from app.domain.documents.entities import RetrievedChunk
 
@@ -23,7 +37,12 @@ RETRIEVED KNOWLEDGE RULES:
   postmortems, architecture docs, and vendor docs.
 - Treat these as reference context, not ground truth about THIS incident. Still conclude only from the
   incident data provided.
-- When a conclusion is supported by a retrieved excerpt, cite it by its [source_type: title] tag.
+- When a conclusion is supported by a retrieved excerpt, cite it with a short [source_type] tag
+  (e.g. "[runbook]", "[incident]") — never quote or paraphrase a retrieved document's full title or
+  content inline. Titles of past-incident excerpts are themselves full sentences; copying one into
+  your prose turns a short root-cause into an unreadable wall of text. The full source is already
+  shown to the reader separately as a citation chip, so the inline tag only needs to mark WHERE a
+  claim came from, not WHAT the source said.
 - If retrieved knowledge conflicts with the incident data, trust the incident data and say so.
 - Never invent an excerpt or a citation that is not present in the Retrieved knowledge section."""
 
@@ -42,7 +61,7 @@ MANDATORY RULES:
 
 Return ONLY a single valid JSON object, with NO explanation or markdown, following this schema:
 {
-  "severity": "critical" | "warning" | "info",
+  "severity": "critical" | "high" | "medium" | "low",
   "summary": "1-2 sentences: what is happening and the impact",
   "root_cause": "root-cause reasoning with evidence and timestamps; if uncertain, state the most likely hypothesis with a confidence level",
   "recommended_action": "concrete action(s) to take now, prioritizing stopping the damage first. If there is more than one distinct step, put EACH step on its own line, numbered '1. ', '2. ', etc. A single obvious action can stay as one plain sentence.",
@@ -61,14 +80,19 @@ def build_retrieval_query(ctx: dict) -> str:
         parts.append(f"service {ctx['service']}")
     if ctx.get("alert"):
         parts.append(str(ctx["alert"]))
-    logs = ctx.get("sample_logs")
-    if logs:
-        parts.append(str(logs[0].get("message", "")))
-    ecs = ctx.get("ecs")
-    if ecs and ecs.get("stopped_reason"):
+    first = first_message(ctx)
+    if first:
+        parts.append(first)
+    # The monitor's own words about why it fired, when enrichment has looked them up — a far better
+    # retrieval query than the notification template the alert text is built from.
+    alarm = _mapping(ctx, "alarm")
+    if alarm.get("reason"):
+        parts.append(str(alarm["reason"]))
+    ecs = _mapping(ctx, "ecs")
+    if ecs.get("stopped_reason"):
         parts.append(str(ecs["stopped_reason"]))
-    dep = ctx.get("recent_deploy")
-    if dep and dep.get("version"):
+    dep = _mapping(ctx, "recent_deploy")
+    if dep.get("version"):
         parts.append(f"deploy {dep['version']}")
     return " | ".join(p for p in parts if p)
 
@@ -87,15 +111,28 @@ def build_user_message(ctx: dict, evidence: "list[RetrievedChunk] | None" = None
     if ctx.get("alert"):
         lines.append(f"\n[ALERT] {ctx['alert']}")
 
-    ecs = ctx.get("ecs")
+    # What the monitor itself reports, looked up rather than inferred from the notification text.
+    # `reason` is CloudWatch's own sentence and usually the most informative line available.
+    alarm = _mapping(ctx, "alarm")
+    if alarm:
+        lines.append(
+            f"\n[ALARM] state={alarm.get('state')}, threshold={alarm.get('threshold')}, "
+            f"missing_data_treated_as={alarm.get('treat_missing_data')}, since={alarm.get('since')}"
+        )
+        if alarm.get("reason"):
+            lines.append(f"  reason: {alarm['reason']}")
+
+    ecs = _mapping(ctx, "ecs")
     if ecs:
         lines.append(
             f"\n[ECS] running/desired={ecs.get('running')}/{ecs.get('desired')}, "
             f"stopped_reason={ecs.get('stopped_reason')}, restart_5m={ecs.get('restarts_5m')}, "
             f"task_memory={ecs.get('task_memory')}"
         )
+        for event in ecs.get("recent_events") or []:
+            lines.append(f"  event: {event}")
 
-    alb = ctx.get("alb")
+    alb = _mapping(ctx, "alb")
     if alb:
         lines.append(
             f"[ALB] healthy/total={alb.get('healthy')}/{alb.get('total')}, "
@@ -103,23 +140,27 @@ def build_user_message(ctx: dict, evidence: "list[RetrievedChunk] | None" = None
             f"req_per_min={alb.get('rpm')}"
         )
 
-    dep = ctx.get("recent_deploy")
+    dep = _mapping(ctx, "recent_deploy")
     if dep:
         lines.append(
             f"[RECENT CHANGE] {dep.get('service')} -> {dep.get('version')} "
             f"by {dep.get('by')}, {dep.get('relative_time')}"
         )
 
-    metrics = ctx.get("metrics")
+    metrics = _mapping(ctx, "metrics")
     if metrics:
         lines.append("[METRICS] " + ", ".join(f"{k}={v}" for k, v in metrics.items()))
 
-    logs = ctx.get("sample_logs")
+    logs = log_lines(ctx)
     if logs:
         lines.append("\n[SAMPLE LOGS] (filtered, with repeat counts)")
         for lg in logs:
             rep = f" x{lg['count']} times" if lg.get("count") else ""
-            lines.append(f"  {lg.get('ts')} {lg.get('level')} {lg.get('message')}{rep}")
+            # Absent fields are skipped rather than printed as "None" — a line that arrived as a
+            # bare string has no ts or level, and three literal "None"s would be tokens the model
+            # has to read past on every log line.
+            body = " ".join(str(lg[k]) for k in ("ts", "level", "message") if lg.get(k))
+            lines.append(f"  {body}{rep}")
 
     if ctx.get("runbook"):
         lines.append(f"\n[RUNBOOK] {ctx['runbook']}")
