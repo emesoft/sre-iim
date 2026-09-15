@@ -231,6 +231,15 @@ export function IntegrationForm({
                       region={config.region ?? ''}
                       capabilities={capabilities}
                       displayName={form.display_name.trim() || null}
+                      // Only on a reconnect: a first-time connection has none of this stored yet,
+                      // and the form is where those two values get typed for the only time.
+                      defaultStartUrl={reconnecting ? (config.sso_start_url ?? '') : ''}
+                      defaultRegion={reconnecting ? (config.sso_region ?? '') : ''}
+                      autoPick={
+                        reconnecting && config.account_id && config.role_name
+                          ? { accountId: config.account_id, roleName: config.role_name }
+                          : undefined
+                      }
                       onConnected={onSaved}
                     />
                     {reconnecting && (

@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { CheckCircle2, PauseCircle, Pencil, PlayCircle, RefreshCw, Trash2, XCircle } from 'lucide-react'
+import { CheckCircle2, KeyRound, PauseCircle, Pencil, PlayCircle, RefreshCw, Trash2, XCircle } from 'lucide-react'
 import { api, errText } from '../../lib/api'
 import { timeAgo } from '../../lib/format'
 import type { Integration, PollResult, Provider, TestConnectionResult } from '../../lib/types'
 import { Badge } from '../../components/ui/Badge'
 import { Button } from '../../components/ui/Button'
+import { AwsSsoConnect } from './AwsSsoConnect'
 
 /** Provider glyph: two letters is enough to tell them apart at a glance and needs no icon set. */
 function ProviderMark({ provider, label }: { provider: string; label: string }) {
@@ -41,6 +42,9 @@ export function IntegrationCard({
   onEdit: () => void
 }) {
   const [busy, setBusy] = useState<string | null>(null)
+  const [reconnecting, setReconnecting] = useState(false)
+  const config = (integration.config ?? {}) as Record<string, string>
+  const isSsoOidc = integration.provider === 'aws' && config.auth_type === 'sso_oidc'
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
 
   const act = async (label: string, fn: () => Promise<string | null>) => {
@@ -157,6 +161,15 @@ export function IntegrationCard({
           {integration.enabled ? <PauseCircle size={14} /> : <PlayCircle size={14} />}
           {integration.enabled ? 'Pause' : 'Resume'}
         </Button>
+        {/* An SSO session expiring is the routine end of every sso_oidc connection, not a
+            misconfiguration — so recovering from it belongs here beside Test, not several clicks
+            deep inside the edit form. Nothing needs typing: the portal URL, region and the pinned
+            account/role are all already on the integration. */}
+        {isSsoOidc && (
+          <Button variant="ghost" disabled={busy !== null} onClick={() => setReconnecting((r) => !r)}>
+            <KeyRound size={14} /> {reconnecting ? 'Cancel' : 'Reconnect'}
+          </Button>
+        )}
         <Button variant="ghost" disabled={busy !== null} onClick={onEdit}>
           <Pencil size={14} /> Edit
         </Button>
@@ -164,6 +177,31 @@ export function IntegrationCard({
           <Trash2 size={14} /> Delete
         </Button>
       </div>
+
+      {reconnecting && (
+        <div className="mt-2">
+          <AwsSsoConnect
+            integrationId={integration.id}
+            project={integration.project}
+            env={integration.env}
+            region={config.region ?? ''}
+            capabilities={integration.capabilities}
+            displayName={integration.display_name ?? null}
+            defaultStartUrl={config.sso_start_url ?? ''}
+            defaultRegion={config.sso_region ?? ''}
+            autoPick={
+              config.account_id && config.role_name
+                ? { accountId: config.account_id, roleName: config.role_name }
+                : undefined
+            }
+            onConnected={() => {
+              setReconnecting(false)
+              setResult({ ok: true, text: 'Signed in again — credentials renewed.' })
+              void onChanged()
+            }}
+          />
+        </div>
+      )}
 
       {result && (
         <p className={`mt-2 text-xs ${result.ok ? 'text-sev-low' : 'text-sev-critical'}`}>

@@ -23,6 +23,9 @@ export function AwsSsoConnect({
   region,
   capabilities,
   displayName,
+  defaultStartUrl = '',
+  defaultRegion = '',
+  autoPick,
   onConnected,
 }: {
   /** Set when switching an existing connection over to SSO — without it the flow would add a
@@ -33,11 +36,25 @@ export function AwsSsoConnect({
   region: string
   capabilities: string[]
   displayName: string | null
+  /** Already stored on the integration being reconnected. An expired session is the routine end of
+   * every SSO connection, and re-typing the portal URL and region to recover from it is asking for
+   * details the app is already holding. */
+  defaultStartUrl?: string
+  defaultRegion?: string
+  /** The account/role this integration is pinned to. Present on a reconnect, and then the whole
+   * flow is one click and a browser approval: there is no choice left to make, so the picker is
+   * skipped and the same role is re-selected automatically. */
+  autoPick?: { accountId: string; roleName: string }
   onConnected: (created: Integration) => void
 }) {
-  const [startUrl, setStartUrl] = useState('')
-  const [ssoRegion, setSsoRegion] = useState('')
-  const [onlyAccounts, setOnlyAccounts] = useState('')
+  const [startUrl, setStartUrl] = useState(defaultStartUrl)
+  const [ssoRegion, setSsoRegion] = useState(defaultRegion)
+  const [onlyAccounts, setOnlyAccounts] = useState(
+    // Reconnecting reaches exactly one account, so don't ask the browser for the rest of the org.
+    autoPick ? autoPick.accountId : '',
+  )
+  /** True when nothing needs typing: the stored config already answers every question. */
+  const knowsEverything = Boolean(defaultStartUrl && defaultRegion)
   const [begun, setBegun] = useState<SsoBegin | null>(null)
   const [roles, setRoles] = useState<SsoRole[] | null>(null)
   const [busy, setBusy] = useState(false)
@@ -85,6 +102,25 @@ export function AwsSsoConnect({
           setBusy(false)
           return
         }
+        // A reconnect has nothing to choose — the integration is already pinned to one account and
+        // role, and re-presenting the list would only invite picking a different one by accident.
+        const same = autoPick
+          ? result.roles.find(
+              (r) => r.account_id === autoPick.accountId && r.role_name === autoPick.roleName,
+            )
+          : undefined
+        if (same) {
+          void choose(same, started)
+          return
+        }
+        if (autoPick) {
+          // Access changed since it was connected: fall through to the picker rather than failing,
+          // but say why the list appeared when the operator expected none.
+          setError(
+            `This sign-in can no longer reach ${autoPick.roleName} in ${autoPick.accountId}. ` +
+              'Pick another account and role, or ask for that access back.',
+          )
+        }
         setRoles(result.roles)
         setBusy(false)
       } catch (e) {
@@ -95,13 +131,16 @@ export function AwsSsoConnect({
     tick()
   }
 
-  const choose = async (role: SsoRole) => {
-    if (!begun) return
+  // `started` is passed explicitly for the auto-pick path: it runs inside the poll that *created*
+  // the sign-in, before React has re-rendered with `begun` set.
+  const choose = async (role: SsoRole, started?: SsoBegin) => {
+    const handle = (started ?? begun)?.handle
+    if (!handle) return
     setBusy(true)
     setError(null)
     try {
       const created = await api.post<Integration>(
-        `/api/integrations/aws-sso/${begun.handle}/finish`,
+        `/api/integrations/aws-sso/${handle}/finish`,
         {
           integration_id: integrationId ?? null,
           account_id: role.account_id,
@@ -171,6 +210,31 @@ export function AwsSsoConnect({
           Open the approval page <ExternalLink size={11} />
         </a>
         {error && <p className="text-sev-critical">{error}</p>}
+      </div>
+    )
+  }
+
+  // Everything this flow needs is already stored on the integration, so asking for it again would
+  // be the app requesting details it is holding. One button, then the browser approval.
+  if (knowsEverything) {
+    return (
+      <div className="space-y-2 rounded-xl border border-hair bg-plane p-3">
+        <p className="text-xs text-ink-2">
+          Signs in again at <span className="font-mono text-ink">{defaultStartUrl}</span>
+          {autoPick && (
+            <>
+              {' '}and stays on{' '}
+              <span className="font-mono text-ink">{autoPick.accountId}</span> ·{' '}
+              <span className="font-mono text-ink">{autoPick.roleName}</span>
+            </>
+          )}
+          . A browser tab opens for you to approve.
+        </p>
+        {error && <p className="text-xs text-sev-critical">{error}</p>}
+        <Button type="button" disabled={busy} onClick={begin}>
+          {busy ? <Loader2 size={14} className="animate-spin" /> : <CheckCircle2 size={14} />}
+          Reconnect
+        </Button>
       </div>
     )
   }
