@@ -12,6 +12,10 @@ hooks (avoiding token spend on unrelated project context) while explicitly keepi
 normally, confirmed against the installed CLI's own `--help` text and by an empirical test call
 (cache_creation_input_tokens dropped from ~24.7k to 0 with --safe-mode, same OAuth session).
 
+**But `--safe-mode` also disables MCP servers**, which is why only the analysis path uses it. The
+chat path needs its four MCP tools and reaches the same token saving with
+`--tools "" --setting-sources "" --disable-slash-commands` — see the comment in `_run_turn`.
+
 Anthropic's terms restrict subscription OAuth to "ordinary use" and CI pipelines, not an always-on
 backend service — this provider is explicitly out of scope for any production deployment.
 """
@@ -363,7 +367,23 @@ class ClaudeCliChat:
                 # missing name is not an error, it just silently isn't callable, and the model then
                 # explains it has no way to check and hands the user a list of commands to run.
                 "--allowedTools", ",".join(_ALLOWED_TOOLS),
-                "--safe-mode", "--model", self._settings.claude_cli_model,
+                # NOT `--safe-mode` here, though the analysis path still uses it. Its help text
+                # reads "all customizations ... disabled" and that list includes **MCP servers**,
+                # so passing it alongside --mcp-config silently won every time: the four tools were
+                # registered, allow-listed and never loaded. Chat answered AWS questions by saying
+                # it had no way to look and pasting commands for the reader to run — the exact
+                # failure the tools exist to prevent, with no error anywhere. Measured, one turn:
+                #
+                #   --safe-mode                      iim-tools NO   Bash YES   prefix ~29k
+                #   (nothing)                        iim-tools YES  Bash YES   prefix ~33k
+                #   --tools "" --setting-sources ""  iim-tools YES  Bash NO    prefix ~9.8k
+                #
+                # The replacement is cheaper as well as correct, and it is what actually removes
+                # Bash/Edit/Write from an incident chat — `--safe-mode` never did.
+                "--tools", "",
+                "--setting-sources", "",
+                "--disable-slash-commands",
+                "--model", self._settings.claude_cli_model,
             ]
             if system_prompt is not None:
                 cmd.extend(["--append-system-prompt", system_prompt])

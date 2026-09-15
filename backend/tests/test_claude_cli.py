@@ -272,6 +272,18 @@ async def test_chat_sends_session_id_for_a_new_session(monkeypatch):
     assert "mcp__iim-tools__fetch_logs" in allowed
     assert "mcp__iim-tools__ecs_service_state" in allowed
 
+    # `--safe-mode` disables MCP servers ("all customizations ... disabled" in its help text), so
+    # passing it next to --mcp-config silently beat the tools every time: registered, allow-listed,
+    # never loaded. Chat then answered AWS questions by explaining it had no way to look — the exact
+    # failure the tools exist to prevent, and nothing errored. Measured on one turn:
+    #   --safe-mode                      iim-tools NO   Bash YES   prefix ~29k
+    #   --tools "" --setting-sources ""  iim-tools YES  Bash NO    prefix ~9.8k
+    # The analysis path (_call_claude_cli) still uses --safe-mode; it needs no MCP.
+    assert "--safe-mode" not in calls[0], "--safe-mode silently disables the MCP tools"
+    assert calls[0][calls[0].index("--tools") + 1] == "", "built-ins must stay off in chat"
+    assert calls[0][calls[0].index("--setting-sources") + 1] == ""
+    assert "--disable-slash-commands" in calls[0]
+
     # The MCP config is written to a restricted-permission file, not inlined as an argv string
     # (argv is visible to other processes via /proc/<pid>/cmdline or `ps aux`), and is cleaned up
     # after the call.
