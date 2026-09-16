@@ -164,6 +164,28 @@ def build_user_message(ctx: dict, evidence: "list[RetrievedChunk] | None" = None
     if metrics:
         lines.append("[METRICS] " + ", ".join(f"{k}={v}" for k, v in metrics.items()))
 
+    # Deploy history, looked up at ingest. Rendered separately from [RECENT CHANGE], which is a
+    # single change someone named when filing; this is what the account itself reports.
+    deployments = _mapping(ctx, "deployments")
+    if deployments:
+        deploys = deployments.get("deploys") or []
+        checked = deployments.get("services_checked")
+        since = deployments.get("since")
+        if deploys:
+            lines.append(f"\n[DEPLOYMENTS] since {since}, across {checked} service(s) checked")
+            for d in deploys:
+                lines.append(
+                    f"  {d.get('started_at')} {d.get('cluster')}/{d.get('service')}"
+                    f" -> {d.get('task_definition')} ({d.get('rollout')})"
+                )
+        else:
+            # Spelled out, because this is a finding and not missing data. "Nothing deployed" rules
+            # out a whole class of cause; an absent section would read as "we didn't look".
+            lines.append(
+                f"\n[DEPLOYMENTS] none — {checked} service(s) checked, no deployment since {since}."
+                " A recent change is ruled out for these services."
+            )
+
     logs = log_lines(ctx)
     if logs:
         lines.append("\n[SAMPLE LOGS] (filtered, with repeat counts)")

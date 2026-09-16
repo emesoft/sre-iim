@@ -42,6 +42,9 @@ _QUOTED = re.compile(r"'([^']+)'")
 _WINDOW = timedelta(hours=1)
 _PERIOD_SECONDS = 300
 _MAX_STOPPED_TASKS = 3
+#: How far back to look for deployments. Wide enough that a rollout which took a while to surface
+#: as an alert is still in frame, narrow enough that "nothing deployed" stays a meaningful answer.
+_DEPLOY_WINDOW = timedelta(hours=2)
 
 
 @dataclass
@@ -141,14 +144,17 @@ class AwsContextEnricher:
     encryptor: Encryptor
 
     async def enrich(self, service: str | None, context: dict) -> dict:
-        alarm_name = _alarm_name(context)
-        if not service or not alarm_name:
+        if not service:
             return {}
         # By provider, not by capability: a project whose alarms come from New Relic can still
         # have an AWS account attached, and that account is what these lookups need.
         integration = await self.integrations.for_provider(service, "aws")
         if integration is None:
             return {}
+        # An alarm name is no longer required to get here. It used to be, which meant every New
+        # Relic incident — the ones with no CloudWatch alarm to look up at all — was enriched with
+        # nothing and analysed on its notification text alone. Deploy history needs no alarm.
+        alarm_name = _alarm_name(context)
         try:
             return await asyncio.to_thread(self._collect, integration, alarm_name)
         except Exception as exc:  # noqa: BLE001 - evidence is a bonus; analysis must still run
@@ -157,18 +163,33 @@ class AwsContextEnricher:
 
     # --- everything below runs in a worker thread (boto3 is blocking) --------------------------
 
-    def _collect(self, integration: Integration, alarm_name: str) -> dict:
+    def _collect(self, integration: Integration, alarm_name: str | None) -> dict:
         lookups = AwsLookups(
             session=CredentialResolver(self.encryptor).resolve(integration),
             region=(integration.config or {}).get("region"),
         )
+        out: dict = {}
+
+        # First, and independent of any alarm: "did something change?" is where nearly every
+        # analysis ends up, and it is answerable for every incident rather than only the ones
+        # carrying a CloudWatch alarm name. A *negative* answer is worth as much as a positive one —
+        # no deployment in the window closes off a whole class of cause that otherwise stays open.
+        deploys = _guarded(
+            "deployments",
+            lambda: lookups.deployments(datetime.now(timezone.utc) - _DEPLOY_WINDOW),
+        )
+        if deploys:
+            out["deployments"] = deploys
+
+        if not alarm_name:
+            return out
         alarm = lookups.alarm(alarm_name)
         if alarm is None:
-            return {}
+            return out
 
         dimensions = alarm.pop("dimensions", {})
         namespace, metric_name = alarm.get("namespace"), alarm.get("metric_name")
-        out: dict = {"alarm": alarm}
+        out["alarm"] = alarm  # assigned, not reassigned — `out` already carries the deploy history
 
         if namespace and metric_name:
             datapoints = _guarded(
